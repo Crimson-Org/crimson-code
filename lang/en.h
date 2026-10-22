@@ -33,6 +33,9 @@
 #define TEXT_SAVE_QUESTION_DETAIL "“%s” has changes that are not saved."
 #define TEXT_DISCARD_QUESTION "Discard unsaved changes?"
 #define TEXT_DISCARD_DETAIL "Some open files have changes that are not saved."
+#define TEXT_FOLDER_MISSING_QUESTION "Folder does not exist"
+#define TEXT_FOLDER_MISSING_DETAIL "“%s” does not exist. Create it and save the file?"
+#define TEXT_CREATE_AND_SAVE "Create and Save"
 
 /* Status bar */
 #define TEXT_MODE_EASY "EASY"

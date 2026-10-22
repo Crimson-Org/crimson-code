@@ -246,9 +246,67 @@ static void on_editor_failed(Editor *editor, const char *message, gpointer data)
 }
 
 
+/* A save waiting for the answer about its missing folder */
+typedef struct {
+	Window *window;
+	Editor *editor;
+	GFile *file, *folder;
+} FolderQuestion;
+
+
+static void free_folder_question(FolderQuestion *question) {
+	g_clear_object(&question->file);
+	g_object_unref(question->folder);
+	g_free(question);
+}
+
+
+static void create_folder_and_save(FolderQuestion *question) {
+	/* The editor may have closed while the question was open */
+	g_autoptr(GPtrArray) editors = list_window_editors(question->window);
+	if (!g_ptr_array_find(editors, question->editor, NULL))
+		return;
+	g_autoptr(GError) error = NULL;
+	gboolean is_created = g_file_make_directory_with_parents(question->folder, NULL, &error)
+		|| g_error_matches(error, G_IO_ERROR, G_IO_ERROR_EXISTS);
+	if (!is_created) {
+		show_window_message(question->window, error->message);
+		return;
+	}
+	save_editor(question->editor, question->file);
+}
+
+
+static void on_folder_question_answered(GObject *dialog, GAsyncResult *result, gpointer data) {
+	FolderQuestion *question = data;
+	if (strcmp(adw_alert_dialog_choose_finish(ADW_ALERT_DIALOG(dialog), result), "create") == 0)
+		create_folder_and_save(question);
+	free_folder_question(question);
+}
+
+
+static void on_editor_folder_missing(Editor *editor, GFile *file, gpointer data) {
+	Window *window = data;
+	FolderQuestion *question = g_new0(FolderQuestion, 1);
+	question->window = window;
+	question->editor = editor;
+	question->file = file ? g_object_ref(file) : NULL;
+	question->folder = g_file_get_parent(file ? file : get_editor_file(editor));
+	g_autofree char *name = g_file_get_parse_name(question->folder);
+	AdwDialog *dialog = adw_alert_dialog_new(TEXT_FOLDER_MISSING_QUESTION, NULL);
+	adw_alert_dialog_format_body(ADW_ALERT_DIALOG(dialog), TEXT_FOLDER_MISSING_DETAIL, name);
+	adw_alert_dialog_add_responses(ADW_ALERT_DIALOG(dialog), "cancel", TEXT_CANCEL, "create", TEXT_CREATE_AND_SAVE,
+		NULL);
+	adw_alert_dialog_set_response_appearance(ADW_ALERT_DIALOG(dialog), "create", ADW_RESPONSE_SUGGESTED);
+	adw_alert_dialog_set_default_response(ADW_ALERT_DIALOG(dialog), "create");
+	adw_alert_dialog_set_close_response(ADW_ALERT_DIALOG(dialog), "cancel");
+	adw_alert_dialog_choose(ADW_ALERT_DIALOG(dialog), window->window, NULL, on_folder_question_answered, question);
+}
+
+
 void get_window_editor_events(Window *window, EditorEvents *events) {
 	*events = (EditorEvents){on_editor_state_changed, on_editor_cursor_moved, on_editor_loaded, on_editor_saved,
-		on_editor_command_requested, on_editor_failed, window};
+		on_editor_command_requested, on_editor_failed, on_editor_folder_missing, window};
 }
 
 

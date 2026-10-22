@@ -820,19 +820,25 @@ static void save_hex(Editor *editor, GFile *file) {
 }
 
 
-void save_editor(Editor *editor, GFile *file) {
+gboolean save_editor(Editor *editor, GFile *file) {
 	Document *document = editor->document;
 	if (document->is_loading)
-		return;
+		return TRUE;
+	GFile *target = file ? file : gtk_source_file_get_location(document->source_file);
+	g_autoptr(GFile) folder = target ? g_file_get_parent(target) : NULL;
+	if (folder && !g_file_query_exists(folder, NULL) && editor->events.folder_missing) {
+		editor->events.folder_missing(editor, file, editor->events.data);
+		return FALSE;
+	}
 	if (document->hex) {
 		save_hex(editor, file);
-		return;
+		return TRUE;
 	}
 	if (get_switch_setting("trim-trailing-spaces"))
 		trim_trailing_spaces(editor);
 	if (has_split_lines(get_document_buffer(document))) {
-		save_split_text(document, file ? file : gtk_source_file_get_location(document->source_file));
-		return;
+		save_split_text(document, target);
+		return TRUE;
 	}
 	g_autoptr(GtkSourceFileSaver) saver = file
 		? gtk_source_file_saver_new_with_target(document->buffer, document->source_file, file)
@@ -841,6 +847,7 @@ void save_editor(Editor *editor, GFile *file) {
 	gtk_source_file_saver_set_flags(saver, GTK_SOURCE_FILE_SAVER_FLAGS_IGNORE_MODIFICATION_TIME);
 	gtk_source_file_saver_save_async(saver, G_PRIORITY_DEFAULT, document->cancellable, NULL, NULL, NULL, on_saved,
 		document);
+	return TRUE;
 }
 
 

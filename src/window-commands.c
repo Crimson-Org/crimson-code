@@ -162,8 +162,8 @@ static void save_and_close(Window *window, CommandInput *input) {
 	Editor *editor = get_current_editor(window);
 	if (!editor)
 		return;
-	save_editor(editor, NULL);
-	close_window_editor(window, editor, TRUE);
+	if (save_editor(editor, NULL))
+		close_window_editor(window, editor, TRUE);
 }
 
 

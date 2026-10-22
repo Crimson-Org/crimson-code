@@ -369,9 +369,11 @@ static void on_close_answered(GObject *dialog, GAsyncResult *result, gpointer da
 	AdwTabPage *page = data;
 	Pane *pane = g_object_get_data(G_OBJECT(dialog), PANE_KEY);
 	const char *answer = adw_alert_dialog_choose_finish(ADW_ALERT_DIALOG(dialog), result);
+	/* A save waiting on the missing folder question keeps the file open */
+	gboolean is_closing = strcmp(answer, "cancel") != 0;
 	if (strcmp(answer, "save") == 0)
-		save_editor(get_page_editor(page), NULL);
-	finish_close(pane->tabs, page, strcmp(answer, "cancel") != 0);
+		is_closing = save_editor(get_page_editor(page), NULL);
+	finish_close(pane->tabs, page, is_closing);
 	g_object_unref(page);
 }
 
