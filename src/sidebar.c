@@ -8,6 +8,8 @@
 #define OPEN_FOLDER_ICON "folder-open"
 #define FILE_ATTRIBUTE "standard::file"
 #define ICON_SPACING 8
+/* Folder links are not followed, so this only stops folders nested past any real project */
+#define MAXIMUM_VISIT_DEPTH 32
 
 /* The tree view, the one filter each folder shares and where chosen files go */
 typedef struct {
@@ -39,6 +41,41 @@ gboolean is_project_name_shown(const char *name, GStrv excluded, gboolean shows_
 		if (*excluded[index] && g_pattern_match_simple(excluded[index], name))
 			return FALSE;
 	return TRUE;
+}
+
+
+/* What visiting each project folder needs */
+typedef struct {
+	GStrv excluded;
+	gboolean shows_hidden;
+	const char *attributes;
+	ProjectFileFunction on_file;
+	gpointer data;
+	GCancellable *cancellable;
+} ProjectVisit;
+
+
+static void visit_folder_level(ProjectVisit *visit, GFile *folder, int depth) {
+	g_autoptr(GFileEnumerator) children = g_file_enumerate_children(folder, visit->attributes,
+		G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS, visit->cancellable, NULL);
+	GFileInfo *info = NULL;
+	GFile *child = NULL;
+	while (children && g_file_enumerator_iterate(children, &info, &child, visit->cancellable, NULL) && info) {
+		if (!is_project_name_shown(g_file_info_get_name(info), visit->excluded, visit->shows_hidden))
+			continue;
+		GFileType type = g_file_info_get_file_type(info);
+		if (type == G_FILE_TYPE_DIRECTORY && depth < MAXIMUM_VISIT_DEPTH)
+			visit_folder_level(visit, child, depth + 1);
+		else if (type == G_FILE_TYPE_REGULAR)
+			visit->on_file(child, info, visit->data);
+	}
+}
+
+
+void visit_project_files(GFile *folder, GStrv excluded, gboolean shows_hidden, const char *attributes,
+	ProjectFileFunction on_file, gpointer data, GCancellable *cancellable) {
+	ProjectVisit visit = {excluded, shows_hidden, attributes, on_file, data, cancellable};
+	visit_folder_level(&visit, folder, 0);
 }
 
 

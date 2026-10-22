@@ -12,7 +12,6 @@
 /* Larger files are rarely written by hand, and reading them would slow the scan */
 #define MAXIMUM_FILE_BYTES (1024 * 1024)
 #define SNIFF_BYTES 8192
-#define MAXIMUM_DEPTH 32
 
 /* How files matching a name pattern write comments */
 typedef struct {
@@ -211,7 +210,7 @@ static PlanItem *scan_source(PlanScan *scan, GFile *file, const char *base_name,
 }
 
 
-/* ==================================== Walking the project ==================================== */
+/* ==================================== Visiting the project =================================== */
 
 
 static void scan_file(PlanScan *scan, GFile *file, const char *base_name, goffset size, GPtrArray *found,
@@ -237,21 +236,18 @@ static void scan_file(PlanScan *scan, GFile *file, const char *base_name, goffse
 }
 
 
-static void scan_folder(PlanScan *scan, GFile *folder, int depth, GPtrArray *found, GCancellable *cancellable) {
-	g_autoptr(GFileEnumerator) children = g_file_enumerate_children(folder, SCAN_ATTRIBUTES,
-		G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS, cancellable, NULL);
-	GFileInfo *info = NULL;
-	GFile *child = NULL;
-	while (children && g_file_enumerator_iterate(children, &info, &child, cancellable, NULL) && info) {
-		const char *name = g_file_info_get_name(info);
-		if (!is_project_name_shown(name, scan->excluded, scan->shows_hidden))
-			continue;
-		GFileType type = g_file_info_get_file_type(info);
-		if (type == G_FILE_TYPE_DIRECTORY && depth < MAXIMUM_DEPTH)
-			scan_folder(scan, child, depth + 1, found, cancellable);
-		else if (type == G_FILE_TYPE_REGULAR)
-			scan_file(scan, child, name, g_file_info_get_size(info), found, cancellable);
-	}
+/* What scanning one found file needs besides the file */
+typedef struct {
+	PlanScan *scan;
+	GPtrArray *found;
+	GCancellable *cancellable;
+} ScanVisit;
+
+
+static void visit_file(GFile *file, GFileInfo *info, gpointer data) {
+	ScanVisit *visit = data;
+	scan_file(visit->scan, file, g_file_info_get_name(info), g_file_info_get_size(info), visit->found,
+		visit->cancellable);
 }
 
 
@@ -280,7 +276,9 @@ static void run_scan(GTask *task, gpointer source, gpointer data, GCancellable *
 		if (info && g_file_info_get_file_type(info) == G_FILE_TYPE_REGULAR)
 			scan_file(scan, file, g_file_info_get_name(info), g_file_info_get_size(info), found, cancellable);
 	} else {
-		scan_folder(scan, scan->root, 0, found, cancellable);
+		ScanVisit visit = {scan, found, cancellable};
+		visit_project_files(scan->root, scan->excluded, scan->shows_hidden, SCAN_ATTRIBUTES, visit_file, &visit,
+			cancellable);
 	}
 	g_task_return_pointer(task, found, (GDestroyNotify)g_ptr_array_unref);
 }

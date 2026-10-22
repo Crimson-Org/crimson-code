@@ -1,6 +1,7 @@
 #include <string.h>
 
 #include "../lang/en.h"
+#include "command-palette.h"
 #include "commands.h"
 #include "editor-completion.h"
 #include "editor-cursors.h"
@@ -448,6 +449,16 @@ static void show_language_servers(Window *window, CommandInput *input) {
 }
 
 
+static void go_to_file(Window *window, CommandInput *input) {
+	show_command_palette(window, "");
+}
+
+
+static void show_commands(Window *window, CommandInput *input) {
+	show_command_palette(window, COMMAND_PALETTE_PREFIX);
+}
+
+
 static void show_about(Window *window, CommandInput *input) {
 	AdwDialog *dialog = adw_about_dialog_new();
 	adw_about_dialog_set_application_name(ADW_ABOUT_DIALOG(dialog), TEXT_APPLICATION_NAME);
@@ -486,6 +497,10 @@ static const Command COMMANDS[] = {
 		save_and_close, NULL, has_editor, NULL},
 	{"replace", TEXT_REPLACE, "edit", {"<Control>h"}, COMMAND_EASY_EDITING, {NULL}, replace, NULL, has_editor, NULL},
 	{"find", TEXT_FIND, "find", {"<Control>f"}, COMMAND_EASY_EDITING, {NULL}, find, NULL, has_editor, NULL},
+	{"go-to-file", TEXT_GO_TO_FILE, "find", {"<Control>p"}, COMMAND_EASY_EDITING, {NULL}, go_to_file, NULL, NULL,
+		NULL},
+	{"command-palette", TEXT_COMMAND_PALETTE, "find", {"<Control><Shift>p"}, COMMAND_EVERYWHERE, {NULL},
+		show_commands, NULL, NULL, NULL},
 	{"next-problem", TEXT_NEXT_PROBLEM, "edit", {"F8"}, COMMAND_EVERYWHERE, {"lne", "lnext", "cn", "cnext"},
 		go_to_next_problem, NULL, has_editor, NULL},
 	{"previous-problem", TEXT_PREVIOUS_PROBLEM, "edit", {"<Shift>F8"}, COMMAND_EVERYWHERE,
@@ -581,6 +596,15 @@ static void run_command(Window *window, const Command *command, CommandInput *in
 		show_window_message(window, input->message);
 	refresh_window_commands(window);
 	g_object_unref(keep);
+}
+
+
+void activate_window_command(Window *window, const Command *command) {
+	if (command->is_available && !command->is_available(window))
+		return;
+	CommandInput input = {NULL, FALSE, NULL};
+	run_command(window, command, &input);
+	g_free(input.message);
 }
 
 
@@ -713,14 +737,11 @@ typedef struct {
 } PendingVimCommand;
 
 
-static void run_vim_command_now(Window *window, const char *text);
-
-
 static gboolean run_pending_vim_command(gpointer data) {
 	PendingVimCommand *pending = data;
 	Window *window = g_object_get_data(G_OBJECT(pending->window), "window");
 	if (window && window->panes)
-		run_vim_command_now(window, pending->text);
+		run_window_command_line(window, pending->text);
 	g_object_unref(pending->window);
 	g_free(pending->text);
 	g_free(pending);
@@ -754,7 +775,7 @@ gboolean run_window_vim_command(Window *window, const char *text) {
 }
 
 
-static void run_vim_command_now(Window *window, const char *text) {
+void run_window_command_line(Window *window, const char *text) {
 	g_autofree char *line = NULL, *argument = NULL;
 	const Command *command = find_typed_command(text, &line, &argument);
 	if (!command)

@@ -2,6 +2,7 @@
 
 #include <adwaita.h>
 
+#include "commands.h"
 #include "editor.h"
 #include "find-bar.h"
 #include "lsp.h"
@@ -117,4 +118,8 @@ void bind_window_commands(Window *window);
 void unbind_window_commands(Window *window);
 void refresh_window_commands(Window *window);
 gboolean run_window_vim_command(Window *window, const char *text);
+/* Runs ":name[!] argument" at once, telling the person when the command cannot run now */
+void run_window_command_line(Window *window, const char *text);
+/* Runs a command as its menu entry does, when it can run now */
+void activate_window_command(Window *window, const Command *command);
 GMenuModel *create_window_menu(void);
