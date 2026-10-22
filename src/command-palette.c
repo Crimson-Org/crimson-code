@@ -28,6 +28,9 @@ typedef struct {
 	/* Paths inside the project, or NULL while they are still being read */
 	GPtrArray *files;
 	GCancellable *cancellable;
+	/* Where the pointer was when the palette appeared, in window surface coordinates */
+	graphene_point_t pointer;
+	gboolean has_pointer;
 } Palette;
 
 /* A row waiting to be shown, with how well it matched and its place in its source list */
@@ -440,6 +443,29 @@ static GtkWidget *create_entry(Palette *palette, const char *start_text) {
 }
 
 
+/* A pointer resting over the list as it opens may only reach the rows once it really moves. The position is kept
+ * in surface coordinates, since the opening animation moves the list under a still pointer */
+static void notice_pointer(GtkEventControllerMotion *motion, double x, double y, Palette *palette) {
+	GtkNative *native = gtk_widget_get_native(palette->scroller);
+	graphene_point_t local = GRAPHENE_POINT_INIT(x, y), point;
+	if (!gtk_widget_compute_point(palette->scroller, GTK_WIDGET(native), &local, &point))
+		return;
+	double shift_x, shift_y;
+	gtk_native_get_surface_transform(native, &shift_x, &shift_y);
+	point.x += shift_x;
+	point.y += shift_y;
+	if (!palette->has_pointer) {
+		palette->pointer = point;
+		palette->has_pointer = TRUE;
+		return;
+	}
+	if (graphene_point_equal(&point, &palette->pointer))
+		return;
+	gtk_widget_set_can_target(palette->list, TRUE);
+	g_signal_handlers_disconnect_by_data(motion, palette);
+}
+
+
 static GtkWidget *create_list(Palette *palette) {
 	palette->list = gtk_list_box_new();
 	gtk_widget_add_css_class(palette->list, "navigation-sidebar");
@@ -451,11 +477,28 @@ static GtkWidget *create_list(Palette *palette) {
 	gtk_box_append(GTK_BOX(box), palette->list);
 	gtk_box_append(GTK_BOX(box), palette->placeholder);
 	g_signal_connect(palette->list, "row-activated", G_CALLBACK(on_row_activated), palette);
+	gtk_widget_set_can_target(palette->list, FALSE);
 	palette->scroller = gtk_scrolled_window_new();
+	GtkEventController *motion = gtk_event_controller_motion_new();
+	g_signal_connect(motion, "enter", G_CALLBACK(notice_pointer), palette);
+	g_signal_connect(motion, "motion", G_CALLBACK(notice_pointer), palette);
+	gtk_widget_add_controller(palette->scroller, motion);
 	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(palette->scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
 	gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(palette->scroller), box);
 	gtk_widget_set_vexpand(palette->scroller, TRUE);
 	return palette->scroller;
+}
+
+
+/* Opening under a still pointer sends it no motion, so its starting place is read from the pointer itself */
+static void remember_pointer(Palette *palette) {
+	GdkSurface *surface = gtk_native_get_surface(gtk_widget_get_native(palette->window->window));
+	GdkDevice *pointer = gdk_seat_get_pointer(gdk_display_get_default_seat(gdk_surface_get_display(surface)));
+	double x, y;
+	if (!pointer || !gdk_surface_get_device_position(surface, pointer, &x, &y, NULL))
+		return;
+	palette->pointer = GRAPHENE_POINT_INIT(x, y);
+	palette->has_pointer = TRUE;
 }
 
 
@@ -480,4 +523,5 @@ void show_command_palette(Window *window, const char *start_text) {
 		start_reading_files(palette);
 	adw_dialog_set_focus(ADW_DIALOG(palette->dialog), palette->entry);
 	adw_dialog_present(ADW_DIALOG(palette->dialog), window->window);
+	remember_pointer(palette);
 }
