@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Crimson Code
+Comment=A code editor with language servers, a terminal and tasks
+Exec=@EXEC@ %U
+Icon=io.github.CrimsonOrg.CrimsonCode
+Terminal=false
+Categories=Development;TextEditor;GTK;
+MimeType=text/plain;text/x-csrc;text/x-chdr;text/x-c++src;text/x-python;application/x-shellscript;text/x-makefile;text/css;application/json;
+Keywords=code;editor;programming;ide;
+StartupNotify=true

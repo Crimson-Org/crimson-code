@@ -1,0 +1,212 @@
+.project-tree {
+	background-color: var(--sidebar-bg-color);
+	color: var(--sidebar-fg-color);
+}
+
+.plan-row-menu {
+	opacity: 0;
+	min-height: 24px;
+	min-width: 24px;
+	padding: 0;
+}
+
+.plan-list row:hover .plan-row-menu,
+.plan-list row:selected .plan-row-menu,
+.plan-row-menu:focus-visible {
+	opacity: 1;
+}
+
+/* Lines dim and brighten as they are checked, and lines a change adds fade in */
+.plan-list label {
+	transition: opacity 200ms ease-out;
+}
+
+.plan-new {
+	animation: plan-row-in 250ms ease-out;
+}
+
+@keyframes plan-row-in {
+	from {
+		opacity: 0;
+	}
+
+	to {
+		opacity: 1;
+	}
+}
+
+.plan-tag {
+	font-weight: 600;
+}
+
+.status-bar {
+	padding: 2px 8px;
+	min-height: 32px;
+}
+
+.status-bar button {
+	padding: 0 8px;
+	min-height: 28px;
+}
+
+.status-bar label.mode {
+	font-weight: 600;
+}
+
+.status-bar image.error {
+	color: var(--error-color);
+}
+
+.status-bar image.warning {
+	color: var(--warning-color);
+}
+
+.minimap {
+	border-left: 1px solid alpha(currentColor, 0.08);
+}
+
+.bottom-panel {
+	border-top: 1px solid alpha(currentColor, 0.12);
+	background-color: var(--view-bg-color);
+}
+
+.panel-header {
+	padding: 2px 6px;
+}
+
+.panel-header button {
+	min-height: 24px;
+	min-width: 24px;
+	padding: 2px;
+}
+
+.panel-pages button {
+	padding: 2px 10px;
+	font-size: 0.9em;
+}
+
+.problems-panel list {
+	background: transparent;
+}
+
+.problems-panel row {
+	padding: 6px 12px;
+}
+
+.problems-panel image.error {
+	color: var(--error-color);
+}
+
+.problems-panel image.warning {
+	color: var(--warning-color);
+}
+
+.problems-panel image.accent {
+	color: var(--accent-color);
+}
+.pane:not(.current) > tabbar {
+	opacity: 0.65;
+}
+
+/* Hover cards look like popups, though they lie on a layer inside the editor */
+.hover-frame {
+	background-color: var(--popover-bg-color);
+	color: var(--popover-fg-color);
+	border-radius: 12px;
+	border: 1px solid alpha(currentColor, 0.08);
+	box-shadow: 0 2px 8px 1px rgba(0, 0, 0, 0.3);
+	padding: 6px;
+	animation: pop-in 120ms ease-out;
+}
+
+.hover-card {
+	padding: 4px 6px;
+}
+
+.hover-code {
+	padding: 8px 10px;
+	border-radius: 6px;
+}
+
+.task-menu {
+	padding: 2px;
+}
+
+.task-list {
+	background: none;
+}
+
+.task-list row {
+	padding: 8px 12px;
+	border-radius: 8px;
+}
+
+.task-list row:hover {
+	background-color: alpha(currentColor, 0.08);
+}
+
+.completion-source {
+	font-size: 0.85em;
+	padding: 4px 10px 2px;
+}
+
+.completion-list row {
+	padding: 4px 8px;
+	border-radius: 6px;
+}
+
+/* Popups such as menus, hover cards and suggestions fade and grow in rather than appearing at once */
+popover > contents {
+	animation: pop-in 120ms ease-out;
+}
+
+.json-tree {
+	padding: 8px 12px;
+}
+
+.json-row {
+	min-height: 26px;
+	border-radius: 4px;
+}
+
+.json-row:hover {
+	background-color: alpha(currentColor, 0.05);
+}
+
+.json-row button.json-fold {
+	min-height: 18px;
+	min-width: 18px;
+	padding: 0;
+}
+
+.json-row .json-menu {
+	opacity: 0;
+}
+
+.json-row:hover .json-menu {
+	opacity: 1;
+}
+
+.json-row .json-menu > button {
+	min-height: 22px;
+	padding: 0 4px;
+}
+
+.json-colon, .json-index, .json-count {
+	opacity: 0.55;
+}
+
+.json-row checkbutton {
+	padding: 0;
+}
+
+/* An empty name or text still leaves room to click and fill it in */
+.json-row editablelabel {
+	min-width: 24px;
+}
+
+.hex-inspector {
+	padding: 12px 16px;
+	min-width: 220px;
+	border-left: 1px solid alpha(currentColor, 0.08);
+}

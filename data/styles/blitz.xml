@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The colours of the Blitz3D editor, taken from the defaults in its released source code -->
+<style-scheme id="blitz" name="Blitz" version="1.0">
+	<description>Blitz2D and Blitz3D inspired, with yellow comments and cyan keywords on blue</description>
+
+	<color name="background" value="#225588"/>
+	<color name="raised" value="#2a6096"/>
+	<color name="gutter" value="#1c4a78"/>
+	<color name="default" value="#eeeeee"/>
+	<color name="identifier" value="#ffffff"/>
+	<color name="keyword" value="#aaffff"/>
+	<color name="string" value="#00ff66"/>
+	<color name="comment" value="#ffee00"/>
+	<color name="digit" value="#33ffdd"/>
+	<color name="faint" value="#7fa6cc"/>
+
+	<style name="text" foreground="default" background="background"/>
+	<style name="selection" foreground="background" background="default"/>
+	<style name="selection-unfocused" foreground="background" background="faint"/>
+	<style name="cursor" foreground="identifier"/>
+	<style name="current-line" background="raised"/>
+	<style name="line-numbers" foreground="faint" background="gutter"/>
+	<style name="current-line-number" foreground="identifier" background="raised" bold="true"/>
+	<style name="bracket-match" foreground="comment" background="raised" bold="true"/>
+	<style name="bracket-mismatch" foreground="background" background="comment"/>
+	<style name="search-match" foreground="background" background="comment"/>
+	<style name="right-margin" foreground="default" background="default"/>
+	<style name="draw-spaces" foreground="faint"/>
+
+	<style name="def:comment" foreground="comment"/>
+	<style name="def:shebang" foreground="comment"/>
+	<style name="def:doc-comment-element" foreground="comment"/>
+	<style name="def:string" foreground="string"/>
+	<style name="def:character" foreground="string"/>
+	<style name="def:special-char" foreground="digit"/>
+	<style name="def:keyword" foreground="keyword"/>
+	<style name="def:statement" foreground="keyword"/>
+	<style name="def:operator" foreground="default"/>
+	<style name="def:preprocessor" foreground="keyword"/>
+	<style name="def:type" foreground="keyword"/>
+	<style name="def:builtin" foreground="keyword"/>
+	<style name="def:function" foreground="identifier"/>
+	<style name="def:identifier" foreground="identifier"/>
+	<style name="def:constant" foreground="keyword"/>
+	<style name="def:special-constant" foreground="keyword"/>
+	<style name="def:boolean" foreground="keyword"/>
+	<style name="def:number" foreground="digit"/>
+	<style name="def:decimal" foreground="digit"/>
+	<style name="def:floating-point" foreground="digit"/>
+	<style name="def:base-n-integer" foreground="digit"/>
+	<style name="def:note" foreground="comment" bold="true"/>
+	<style name="def:net-address" foreground="keyword" underline="single"/>
+	<style name="def:error" foreground="identifier" underline="error"/>
+	<style name="def:heading" foreground="keyword" bold="true"/>
+	<style name="def:emphasis" italic="true"/>
+	<style name="def:strong-emphasis" bold="true"/>
+	<style name="def:insertion" foreground="string"/>
+	<style name="def:deletion" foreground="comment"/>
+	<style name="diff:added-line" foreground="string"/>
+	<style name="diff:removed-line" foreground="comment"/>
+	<style name="diff:location" foreground="keyword"/>
+</style-scheme>

@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- BlitzMax NG, from https://blitzmax.org, whose keywords ignore case -->
+<language id="blitzmax" name="BlitzMax" version="2.0" _section="Source">
+	<metadata>
+		<property name="mimetypes">text/x-blitzmax</property>
+		<property name="globs">*.bmx</property>
+		<property name="line-comment-start">'</property>
+		<property name="block-comment-start">Rem</property>
+		<property name="block-comment-end">EndRem</property>
+	</metadata>
+	<styles>
+		<style id="comment" name="Comment" map-to="def:comment"/>
+		<style id="string" name="String" map-to="def:string"/>
+		<style id="keyword" name="Keyword" map-to="def:keyword"/>
+		<style id="declaration" name="Declaration" map-to="def:type"/>
+		<style id="modifier" name="Modifier" map-to="def:builtin"/>
+		<style id="type" name="Data Type" map-to="def:type"/>
+		<style id="constant" name="Constant" map-to="def:special-constant"/>
+		<style id="self" name="Self and Super" map-to="def:builtin"/>
+		<style id="number" name="Number" map-to="def:number"/>
+		<style id="preprocessor" name="Conditional Compiling" map-to="def:preprocessor"/>
+	</styles>
+	<default-regex-options case-sensitive="false"/>
+	<definitions>
+		<context id="block-comment" style-ref="comment" class="comment" class-disabled="no-spell-check">
+			<start>^\s*Rem\b</start>
+			<end>^\s*End\s?Rem\b</end>
+			<include>
+				<context ref="def:in-comment"/>
+			</include>
+		</context>
+		<context id="line-comment" style-ref="comment" end-at-line-end="true" class="comment"
+			class-disabled="no-spell-check">
+			<start>'</start>
+			<include>
+				<context ref="def:in-comment"/>
+			</include>
+		</context>
+		<context id="triple-string" style-ref="string" class="string" class-disabled="no-spell-check">
+			<start>"""</start>
+			<end>"""</end>
+		</context>
+		<context id="string" style-ref="string" end-at-line-end="true" class="string" class-disabled="no-spell-check">
+			<start>"</start>
+			<end>"</end>
+			<include>
+				<context id="escape" style-ref="def:special-char">
+					<match>~[0-9a-z~"]</match>
+				</context>
+			</include>
+		</context>
+		<context id="conditional" style-ref="preprocessor" end-at-line-end="true">
+			<start>^\s*\?</start>
+		</context>
+		<context id="declarations" style-ref="declaration">
+			<keyword>End\s*Type</keyword>
+			<keyword>End\s*Struct</keyword>
+			<keyword>End\s*Function</keyword>
+			<keyword>End\s*Method</keyword>
+			<keyword>End\s*Enum</keyword>
+			<keyword>End\s*Interface</keyword>
+			<keyword>Type</keyword>
+			<keyword>Struct</keyword>
+			<keyword>Function</keyword>
+			<keyword>Method</keyword>
+			<keyword>Enum</keyword>
+			<keyword>Interface</keyword>
+			<keyword>Const</keyword>
+			<keyword>Local</keyword>
+			<keyword>Global</keyword>
+			<keyword>Field</keyword>
+		</context>
+		<context id="modifiers" style-ref="modifier">
+			<keyword>End\s*Extern</keyword>
+			<keyword>Public</keyword>
+			<keyword>Private</keyword>
+			<keyword>Protected</keyword>
+			<keyword>Extern</keyword>
+			<keyword>Abstract</keyword>
+			<keyword>Extends</keyword>
+			<keyword>Implements</keyword>
+			<keyword>Final</keyword>
+			<keyword>ReadOnly</keyword>
+			<keyword>Export</keyword>
+			<keyword>Override</keyword>
+			<keyword>Where</keyword>
+			<keyword>StaticArray</keyword>
+		</context>
+		<context id="keywords" style-ref="keyword">
+			<keyword>Else\s*If</keyword>
+			<keyword>End\s*If</keyword>
+			<keyword>End\s*While</keyword>
+			<keyword>End\s*Select</keyword>
+			<keyword>End\s*Try</keyword>
+			<keyword>SuperStrict</keyword>
+			<keyword>Strict</keyword>
+			<keyword>Framework</keyword>
+			<keyword>Import</keyword>
+			<keyword>Include</keyword>
+			<keyword>And</keyword>
+			<keyword>Or</keyword>
+			<keyword>Not</keyword>
+			<keyword>Shl</keyword>
+			<keyword>Shr</keyword>
+			<keyword>Sar</keyword>
+			<keyword>Mod</keyword>
+			<keyword>Operator</keyword>
+			<keyword>If</keyword>
+			<keyword>Then</keyword>
+			<keyword>Else</keyword>
+			<keyword>For</keyword>
+			<keyword>To</keyword>
+			<keyword>Step</keyword>
+			<keyword>Next</keyword>
+			<keyword>EachIn</keyword>
+			<keyword>While</keyword>
+			<keyword>Wend</keyword>
+			<keyword>Repeat</keyword>
+			<keyword>Until</keyword>
+			<keyword>Forever</keyword>
+			<keyword>Select</keyword>
+			<keyword>Case</keyword>
+			<keyword>Default</keyword>
+			<keyword>Exit</keyword>
+			<keyword>Continue</keyword>
+			<keyword>Return</keyword>
+			<keyword>New</keyword>
+			<keyword>Delete</keyword>
+			<keyword>Release</keyword>
+			<keyword>ModuleInfo</keyword>
+			<keyword>Module</keyword>
+			<keyword>IncbinPtr</keyword>
+			<keyword>IncbinLen</keyword>
+			<keyword>Incbin</keyword>
+			<keyword>Assert</keyword>
+			<keyword>Goto</keyword>
+			<keyword>Try</keyword>
+			<keyword>Catch</keyword>
+			<keyword>Finally</keyword>
+			<keyword>Throw</keyword>
+			<keyword>DefData</keyword>
+			<keyword>ReadData</keyword>
+			<keyword>RestoreData</keyword>
+			<keyword>Varptr</keyword>
+			<keyword>StackAlloc</keyword>
+			<keyword>FieldOffset</keyword>
+			<keyword>NoDebug</keyword>
+			<keyword>Alias</keyword>
+			<keyword>End</keyword>
+		</context>
+		<context id="types" style-ref="type">
+			<keyword>Byte</keyword>
+			<keyword>Short</keyword>
+			<keyword>UInt</keyword>
+			<keyword>Int128</keyword>
+			<keyword>Int</keyword>
+			<keyword>ULong</keyword>
+			<keyword>Long</keyword>
+			<keyword>Size_T</keyword>
+			<keyword>LParam</keyword>
+			<keyword>WParam</keyword>
+			<keyword>Float128</keyword>
+			<keyword>Float64</keyword>
+			<keyword>Float</keyword>
+			<keyword>Double128</keyword>
+			<keyword>Double</keyword>
+			<keyword>String</keyword>
+			<keyword>Object</keyword>
+			<keyword>Var</keyword>
+			<keyword>Ptr</keyword>
+		</context>
+		<context id="constants" style-ref="constant">
+			<keyword>True</keyword>
+			<keyword>False</keyword>
+			<keyword>Null</keyword>
+		</context>
+		<context id="self" style-ref="self">
+			<keyword>Self</keyword>
+			<keyword>Super</keyword>
+		</context>
+		<context id="number" style-ref="number">
+			<match>(?&lt;![\w.])(\$[0-9a-f]+|%[01]+|[0-9]+(\.[0-9]*)?(e[+-]?[0-9]+)?|\.[0-9]+)</match>
+		</context>
+		<context id="blitzmax" class="no-spell-check">
+			<include>
+				<context ref="block-comment"/>
+				<context ref="line-comment"/>
+				<context ref="triple-string"/>
+				<context ref="string"/>
+				<context ref="conditional"/>
+				<context ref="declarations"/>
+				<context ref="modifiers"/>
+				<context ref="keywords"/>
+				<context ref="types"/>
+				<context ref="constants"/>
+				<context ref="self"/>
+				<context ref="number"/>
+			</include>
+		</context>
+	</definitions>
+</language>

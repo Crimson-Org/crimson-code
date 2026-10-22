@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- JSON that allows comments and trailing commas, as hand written configuration files often do -->
+<language id="jsonc" name="JSON with Comments" version="2.0" _section="Other">
+	<metadata>
+		<property name="mimetypes">application/jsonc</property>
+		<property name="globs">*.jsonc</property>
+		<property name="line-comment-start">//</property>
+		<property name="block-comment-start">/*</property>
+		<property name="block-comment-end">*/</property>
+	</metadata>
+	<styles>
+		<style id="key" name="Key" map-to="def:constant"/>
+		<style id="string" name="String" map-to="def:string"/>
+		<style id="escape" name="Escaped Character" map-to="def:special-char"/>
+		<style id="literal" name="Literal" map-to="def:special-constant"/>
+		<style id="number" name="Number" map-to="def:number"/>
+	</styles>
+	<definitions>
+		<context id="jsonc">
+			<include>
+				<context ref="def:c-like-comment"/>
+				<context ref="def:c-like-comment-multiline"/>
+				<context id="key" style-ref="key">
+					<match>"(?:[^"\\]|\\.)*"(?=\s*:)</match>
+				</context>
+				<context id="string" style-ref="string" end-at-line-end="true">
+					<start>"</start>
+					<end>"</end>
+					<include>
+						<context id="escape" style-ref="escape">
+							<match>\\.</match>
+						</context>
+					</include>
+				</context>
+				<context id="literal" style-ref="literal">
+					<match>\b(?:true|false|null)\b</match>
+				</context>
+				<context id="number" style-ref="number">
+					<match>-?\b[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?\b</match>
+				</context>
+			</include>
+		</context>
+	</definitions>
+</language>

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+	<id>io.github.CrimsonOrg.CrimsonCode</id>
+	<name>Crimson Code</name>
+	<summary>A code editor with language servers, a terminal and tasks</summary>
+	<metadata_license>CC0-1.0</metadata_license>
+	<project_license>LicenseRef-proprietary</project_license>
+	<description>
+		<p>A code editor that opens at once and loads the project, language servers and terminal in the background.</p>
+	</description>
+	<developer id="io.github.CrimsonOrg">
+		<name>Crimson</name>
+	</developer>
+	<releases>
+		<release version="0.1.0" date="2026-10-18"/>
+	</releases>
+	<launchable type="desktop-id">io.github.CrimsonOrg.CrimsonCode.desktop</launchable>
+	<provides>
+		<binary>crimson-code</binary>
+	</provides>
+	<content_rating type="oars-1.1"/>
+</component>
