@@ -96,6 +96,10 @@ printf '==> %s\n' 'each src/vterm/src/*.c'
 crimson_each "src/vterm/src/*.c" "build/obj/{id}.o" "cc -std=gnu99 -O2 -g -w -Isrc/vterm/include -c {from} -o {to}" "src/*.h lang/*.h subprojects/crimson-core/src/common/*.h subprojects/crimson-build/src/build/*.h"
 printf '==> %s\n' 'cc -std=gnu11 -O2 -g $(pkg-config --cflags gio-2.0) -c build/resources.c -o build/obj/resources.o'
 cc -std=gnu11 -O2 -g $(pkg-config --cflags gio-2.0) -c build/resources.c -o build/obj/resources.o
+printf '==> %s\n' 'glib-compile-resources --sourcedir subprojects/crimson-core/data --target build/core-resources.c --generate-source subprojects/crimson-core/data/crimson-core.gresource.xml'
+glib-compile-resources --sourcedir subprojects/crimson-core/data --target build/core-resources.c --generate-source subprojects/crimson-core/data/crimson-core.gresource.xml
+printf '==> %s\n' 'cc -std=gnu11 -O2 -g $(pkg-config --cflags gio-2.0) -c build/core-resources.c -o build/obj/core-resources.o'
+cc -std=gnu11 -O2 -g $(pkg-config --cflags gio-2.0) -c build/core-resources.c -o build/obj/core-resources.o
 printf '==> %s\n' 'cc -o build/${PROGRAM} build/obj/*.o $(pkg-config --libs $PKGS) $LIBS'
 cc -o build/${PROGRAM} build/obj/*.o $(pkg-config --libs $PKGS) $LIBS
 printf '==> %s\n' 'copy build/${PROGRAM} to .${PROGRAM}.new'

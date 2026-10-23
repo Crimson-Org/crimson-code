@@ -6,15 +6,5 @@
 		<file alias="common.css">../subprojects/crimson-core/data/common.css</file>
 		<file>language-specs/jsonc.lang</file>
 		<file>language-specs/blitzmax.lang</file>
-		<file>styles/blitz.xml</file>
-		<file>styles/catppuccin-latte.xml</file>
-		<file>styles/catppuccin-mocha.xml</file>
-		<file>styles/cupcake.xml</file>
-		<file>styles/dracula.xml</file>
-		<file>styles/gruvbox-dark.xml</file>
-		<file>styles/gruvbox-light.xml</file>
-		<file>styles/nord.xml</file>
-		<file>styles/crimson-monokai-light.xml</file>
-		<file>styles/crimson-monokai.xml</file>
 	</gresource>
 </gresources>

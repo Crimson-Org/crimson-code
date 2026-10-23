@@ -982,6 +982,7 @@ static GtkWidget *create_content(Window *window) {
 	gtk_paned_set_position(GTK_PANED(window->sidebar_paned), window->state.sidebar_width);
 	window->sidebar_slide = create_panel_slide(GTK_PANED(window->sidebar_paned), FALSE);
 	GtkWidget *toolbar = adw_toolbar_view_new();
+	gtk_widget_add_css_class(toolbar, "title-bar");
 	window->toolbar = toolbar;
 	adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(toolbar), create_header(window));
 	adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(toolbar), window->sidebar_paned);
