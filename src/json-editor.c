@@ -6,12 +6,34 @@
 #include "../lang/en.h"
 #include "json-editor.h"
 #include "build/json.h"
+#include "common/loading.h"
 
 #define EDITOR_KEY "json-editor"
-#define TARGET_KEY "json-target"
+#define PARTS_KEY "json-row-parts"
 #define LEVEL_INDENT_PIXELS 18
 #define FOLD_WIDTH_PIXELS 18
 #define DEFAULT_INDENT "\t"
+#define NO_PARENT G_MAXUINT
+
+/* Hands the list view a placeholder for each shown row, since rows read their value by position
+ * so a file with a million values only ever builds the few rows on screen */
+#define TREE_ROWS_TYPE (tree_rows_get_type())
+G_DECLARE_FINAL_TYPE(TreeRows, tree_rows, CRIMSON, TREE_ROWS, GObject)
+
+struct _TreeRows {
+	GObject parent_instance;
+	guint count;
+};
+
+/* One shown line of the tree, pointing into the parsed value it came from */
+typedef struct {
+	JsonValue *value, *parent;
+	guint index;
+	/* The row of the group or list holding this value, or NO_PARENT at the top */
+	guint parent_row;
+	int depth;
+	gboolean is_folded;
+} TreeRow;
 
 /* A compact tree with one line per value in the code font and the scheme's colours, edited in place with a click
  * The text stays the source, so comments, spacing and undo all survive */
@@ -20,23 +42,44 @@ typedef struct {
 	/* The text the tree was read from, which the recorded byte offsets point into */
 	char *text;
 	JsonValue *root;
-	GtkWidget *stack, *rows, *problem;
+	/* The text and values the shown rows point into, kept until the next rows replace them */
+	char *shown_text;
+	JsonValue *shown_root;
+	GArray *shown;
+	TreeRows *model;
+	GtkWidget *stack, *problem, *add_first;
 	/* Paths of groups and lists the person folded, kept across rebuilds */
 	GHashTable *collapsed;
 	char *indent;
 	guint rebuild_source;
 	/* Set while this editor changes the text, so its own change does not read the text back too early */
 	gboolean is_writing;
+	/* Cancels the parse running on a worker, whose result is out of date once the text is read again */
+	GCancellable *reading;
+	JsonEditorReady on_ready;
+	gpointer ready_data;
+	/* Set while the rows come from the file on disk, as the buffer is still loading and offsets would not match */
+	gboolean is_preview;
 	/* The index path of the row being dragged */
 	GArray *drag_path;
 } JsonEditor;
 
-/* A row's place in the tree as indices from the top, which stays meaningful after the text is read again */
+/* The text a worker parses, or the file it reads it from first, handed back to the editor once it is done */
+typedef struct {
+	char *text;
+	GFile *file;
+} ParseJob;
+
+/* The widgets of one reused row, which shows the value its list item is bound to */
 typedef struct {
 	JsonEditor *editor;
-	GArray *path;
-	char *fold_key;
-} RowTarget;
+	GtkListItem *list_item;
+	GtkWidget *row, *fold, *fold_space, *colon, *menu_button;
+	/* Made the first time the row shows that kind, and NULL until then */
+	GtkWidget *name, *position, *text_value, *number_value, *switch_value, *plain_value;
+	/* Set while the row is filled in, so filling a check box does not count as a click */
+	gboolean is_binding;
+} RowParts;
 
 static const struct {
 	const char *id, *label, *literal;
@@ -68,16 +111,85 @@ static JsonEditor *get_editor(GtkWidget *widget) {
 }
 
 
-static void free_target(gpointer data) {
-	RowTarget *target = data;
-	g_array_unref(target->path);
-	g_free(target->fold_key);
-	g_free(target);
+static guint path_index(const GArray *path, guint position) {
+	return g_array_index(path, guint, position);
 }
 
 
-static guint path_index(const GArray *path, guint position) {
-	return g_array_index(path, guint, position);
+static gboolean is_container_value(const JsonValue *value) {
+	return value && (value->kind == JSON_OBJECT || value->kind == JSON_ARRAY);
+}
+
+
+static TreeRow *get_tree_row(GArray *rows, guint position) {
+	return &g_array_index(rows, TreeRow, position);
+}
+
+
+static const char *get_row_name(const TreeRow *row) {
+	return row->parent->names ? g_ptr_array_index(row->parent->names, row->index) : NULL;
+}
+
+
+/* The names and positions from the top down to a row, which is how folds are remembered across rebuilds */
+static char *get_fold_key(GArray *rows, guint position) {
+	TreeRow *row = get_tree_row(rows, position);
+	g_autofree char *above = row->parent_row == NO_PARENT ? g_strdup("") : get_fold_key(rows, row->parent_row);
+	const char *name = get_row_name(row);
+	return name ? g_strconcat(above, "/", name, NULL) : g_strdup_printf("%s/%u", above, row->index);
+}
+
+
+/* ==================================== The row model ==================================== */
+
+
+static GType tree_rows_get_item_type(GListModel *model) {
+	return G_TYPE_OBJECT;
+}
+
+
+static guint tree_rows_get_n_items(GListModel *model) {
+	return CRIMSON_TREE_ROWS(model)->count;
+}
+
+
+static gpointer tree_rows_get_item(GListModel *model, guint position) {
+	return position < CRIMSON_TREE_ROWS(model)->count ? g_object_new(G_TYPE_OBJECT, NULL) : NULL;
+}
+
+
+static void tree_rows_list_model_init(GListModelInterface *interface) {
+	interface->get_item_type = tree_rows_get_item_type;
+	interface->get_n_items = tree_rows_get_n_items;
+	interface->get_item = tree_rows_get_item;
+}
+
+
+G_DEFINE_FINAL_TYPE_WITH_CODE(TreeRows, tree_rows, G_TYPE_OBJECT,
+	G_IMPLEMENT_INTERFACE(G_TYPE_LIST_MODEL, tree_rows_list_model_init))
+
+
+static void tree_rows_class_init(TreeRowsClass *class) {
+}
+
+
+static void tree_rows_init(TreeRows *rows) {
+}
+
+
+/* ==================================== Finding a row's value ==================================== */
+
+
+/* The index path from the top to the value a row shows, or NULL while the row is not bound to one */
+static GArray *get_row_path(RowParts *parts) {
+	JsonEditor *editor = parts->editor;
+	guint position = gtk_list_item_get_position(parts->list_item);
+	if (position >= editor->shown->len)
+		return NULL;
+	GArray *path = g_array_new(FALSE, FALSE, sizeof(guint));
+	for (guint at = position; at != NO_PARENT; at = get_tree_row(editor->shown, at)->parent_row)
+		g_array_prepend_val(path, get_tree_row(editor->shown, at)->index);
+	return path;
 }
 
 
@@ -100,18 +212,43 @@ static JsonValue *find_value(JsonEditor *editor, const GArray *path, JsonValue *
 /* ==================================== Reading and patching the text ==================================== */
 
 
-static void read_text(JsonEditor *editor) {
+static char *get_buffer_text(JsonEditor *editor) {
 	GtkTextIter start, end;
 	gtk_text_buffer_get_bounds(editor->buffer, &start, &end);
-	g_free(editor->text);
-	editor->text = gtk_text_buffer_get_text(editor->buffer, &start, &end, FALSE);
-	g_clear_pointer(&editor->root, free_json);
-	g_autoptr(GError) error = NULL;
-	editor->root = parse_json(editor->text, -1, &error);
-	if (!editor->root) {
+	return gtk_text_buffer_get_text(editor->buffer, &start, &end, FALSE);
+}
+
+
+/* Takes over a newly read text and what it parsed to, while the shown rows keep pointing into the previous text
+ * until show_rows replaces them */
+static void take_text(JsonEditor *editor, char *text, JsonValue *root, const GError *error) {
+	if (editor->text != editor->shown_text) {
+		g_free(editor->text);
+		g_clear_pointer(&editor->root, free_json);
+	}
+	editor->text = text;
+	editor->root = root;
+	if (!root) {
 		g_autofree char *message = g_strdup_printf(TEXT_JSON_NOT_VALID, error ? error->message : "");
 		gtk_label_set_text(GTK_LABEL(editor->problem), message);
 	}
+}
+
+
+static void cancel_reading(JsonEditor *editor) {
+	if (editor->reading)
+		g_cancellable_cancel(editor->reading);
+	g_clear_object(&editor->reading);
+}
+
+
+/* Reads and parses at once, for edits that need fresh offsets before their next step */
+static void read_text(JsonEditor *editor) {
+	cancel_reading(editor);
+	char *text = get_buffer_text(editor);
+	g_autoptr(GError) error = NULL;
+	JsonValue *root = parse_json(text, -1, &error);
+	take_text(editor, text, root, error);
 }
 
 
@@ -257,15 +394,18 @@ static void remove_item(JsonEditor *editor, JsonValue *parent, guint index) {
 /* ==================================== Editing in place ==================================== */
 
 
-static void on_name_edited(GObject *label, GParamSpec *property, RowTarget *target) {
+static void on_name_edited(GObject *label, GParamSpec *property, RowParts *parts) {
 	if (gtk_editable_label_get_editing(GTK_EDITABLE_LABEL(label)))
 		return;
-	JsonEditor *editor = target->editor;
+	JsonEditor *editor = parts->editor;
+	g_autoptr(GArray) path = get_row_path(parts);
 	JsonValue *parent = NULL;
-	JsonValue *value = find_value(editor, target->path, &parent);
-	guint index = path_index(target->path, target->path->len - 1);
+	JsonValue *value = path ? find_value(editor, path, &parent) : NULL;
+	if (!value || !parent || !parent->names)
+		return;
+	guint index = path_index(path, path->len - 1);
 	const char *text = gtk_editable_get_text(GTK_EDITABLE(label));
-	if (!value || !parent || !parent->names || strcmp(text, g_ptr_array_index(parent->names, index)) == 0)
+	if (strcmp(text, g_ptr_array_index(parent->names, index)) == 0)
 		return;
 	gsize start = get_item_start(parent, index);
 	g_autofree char *quoted = quote(text);
@@ -276,11 +416,12 @@ static void on_name_edited(GObject *label, GParamSpec *property, RowTarget *targ
 
 
 /* Text keeps what was typed, and a number that does not read as one goes back to what it was */
-static void on_value_edited(GObject *label, GParamSpec *property, RowTarget *target) {
+static void on_value_edited(GObject *label, GParamSpec *property, RowParts *parts) {
 	if (gtk_editable_label_get_editing(GTK_EDITABLE_LABEL(label)))
 		return;
-	JsonEditor *editor = target->editor;
-	JsonValue *value = find_value(editor, target->path, NULL);
+	JsonEditor *editor = parts->editor;
+	g_autoptr(GArray) path = get_row_path(parts);
+	JsonValue *value = path ? find_value(editor, path, NULL) : NULL;
 	if (!value)
 		return;
 	const char *text = gtk_editable_get_text(GTK_EDITABLE(label));
@@ -305,9 +446,12 @@ static void on_value_edited(GObject *label, GParamSpec *property, RowTarget *tar
 }
 
 
-static void on_switch_toggled(GtkCheckButton *check, RowTarget *target) {
-	JsonEditor *editor = target->editor;
-	JsonValue *value = find_value(editor, target->path, NULL);
+static void on_switch_toggled(GtkCheckButton *check, RowParts *parts) {
+	if (parts->is_binding)
+		return;
+	JsonEditor *editor = parts->editor;
+	g_autoptr(GArray) path = get_row_path(parts);
+	JsonValue *value = path ? find_value(editor, path, NULL) : NULL;
 	if (!value || value->kind != JSON_BOOLEAN)
 		return;
 	begin_change(editor);
@@ -316,11 +460,18 @@ static void on_switch_toggled(GtkCheckButton *check, RowTarget *target) {
 }
 
 
-static void on_fold_clicked(GtkButton *button, RowTarget *target) {
-	JsonEditor *editor = target->editor;
-	if (!g_hash_table_remove(editor->collapsed, target->fold_key))
-		g_hash_table_add(editor->collapsed, g_strdup(target->fold_key));
-	schedule_rebuild(editor);
+static void show_rows(JsonEditor *editor);
+
+
+static void on_fold_clicked(GtkButton *button, RowParts *parts) {
+	JsonEditor *editor = parts->editor;
+	guint position = gtk_list_item_get_position(parts->list_item);
+	if (position >= editor->shown->len)
+		return;
+	g_autofree char *key = get_fold_key(editor->shown, position);
+	if (!g_hash_table_remove(editor->collapsed, key))
+		g_hash_table_add(editor->collapsed, g_steal_pointer(&key));
+	show_rows(editor);
 }
 
 
@@ -328,25 +479,27 @@ static void on_fold_clicked(GtkButton *button, RowTarget *target) {
 
 
 static void on_insert_after(GSimpleAction *action, GVariant *parameter, gpointer data) {
-	RowTarget *target = data;
-	JsonEditor *editor = target->editor;
+	JsonEditor *editor = ((RowParts *)data)->editor;
+	g_autoptr(GArray) path = get_row_path(data);
 	JsonValue *parent = NULL;
-	if (!find_value(editor, target->path, &parent) || !parent)
+	if (!path || !find_value(editor, path, &parent) || !parent)
 		return;
 	begin_change(editor);
-	insert_after(editor, parent, path_index(target->path, target->path->len - 1), "\"\"",
+	insert_after(editor, parent, path_index(path, path->len - 1), "\"\"",
 		parent->kind == JSON_OBJECT ? TEXT_JSON_NEW_FIELD : NULL);
 	end_change(editor);
 }
 
 
 static void on_add_inside(GSimpleAction *action, GVariant *parameter, gpointer data) {
-	RowTarget *target = data;
-	JsonEditor *editor = target->editor;
-	JsonValue *value = find_value(editor, target->path, NULL);
-	if (!value || (value->kind != JSON_OBJECT && value->kind != JSON_ARRAY))
+	RowParts *parts = data;
+	JsonEditor *editor = parts->editor;
+	g_autoptr(GArray) path = get_row_path(parts);
+	JsonValue *value = path ? find_value(editor, path, NULL) : NULL;
+	if (!is_container_value(value))
 		return;
-	g_hash_table_remove(editor->collapsed, target->fold_key);
+	g_autofree char *key = get_fold_key(editor->shown, gtk_list_item_get_position(parts->list_item));
+	g_hash_table_remove(editor->collapsed, key);
 	begin_change(editor);
 	insert_into(editor, value, "\"\"");
 	end_change(editor);
@@ -354,13 +507,13 @@ static void on_add_inside(GSimpleAction *action, GVariant *parameter, gpointer d
 
 
 static void on_duplicate(GSimpleAction *action, GVariant *parameter, gpointer data) {
-	RowTarget *target = data;
-	JsonEditor *editor = target->editor;
+	JsonEditor *editor = ((RowParts *)data)->editor;
+	g_autoptr(GArray) path = get_row_path(data);
 	JsonValue *parent = NULL;
-	JsonValue *value = find_value(editor, target->path, &parent);
+	JsonValue *value = path ? find_value(editor, path, &parent) : NULL;
 	if (!value || !parent)
 		return;
-	guint index = path_index(target->path, target->path->len - 1);
+	guint index = path_index(path, path->len - 1);
 	g_autofree char *copy = g_strndup(editor->text + value->start, value->end - value->start);
 	const char *name = parent->names ? g_ptr_array_index(parent->names, index) : NULL;
 	begin_change(editor);
@@ -370,13 +523,13 @@ static void on_duplicate(GSimpleAction *action, GVariant *parameter, gpointer da
 
 
 static void on_remove(GSimpleAction *action, GVariant *parameter, gpointer data) {
-	RowTarget *target = data;
-	JsonEditor *editor = target->editor;
+	JsonEditor *editor = ((RowParts *)data)->editor;
+	g_autoptr(GArray) path = get_row_path(data);
 	JsonValue *parent = NULL;
-	if (!find_value(editor, target->path, &parent) || !parent)
+	if (!path || !find_value(editor, path, &parent) || !parent)
 		return;
 	begin_change(editor);
-	remove_item(editor, parent, path_index(target->path, target->path->len - 1));
+	remove_item(editor, parent, path_index(path, path->len - 1));
 	end_change(editor);
 }
 
@@ -398,9 +551,9 @@ static char *convert_literal(JsonEditor *editor, const JsonValue *value, guint k
 
 
 static void on_set_kind(GSimpleAction *action, GVariant *parameter, gpointer data) {
-	RowTarget *target = data;
-	JsonEditor *editor = target->editor;
-	JsonValue *value = find_value(editor, target->path, NULL);
+	JsonEditor *editor = ((RowParts *)data)->editor;
+	g_autoptr(GArray) path = get_row_path(data);
+	JsonValue *value = path ? find_value(editor, path, NULL) : NULL;
 	const char *id = g_variant_get_string(parameter, NULL);
 	for (guint index = 0; value && index < G_N_ELEMENTS(KINDS); index++) {
 		if (strcmp(KINDS[index].id, id) != 0 || value->kind == KINDS[index].kind)
@@ -414,23 +567,19 @@ static void on_set_kind(GSimpleAction *action, GVariant *parameter, gpointer dat
 }
 
 
-static GMenuModel *create_menu(gboolean is_container, gboolean has_parent) {
+static GMenuModel *create_menu(gboolean is_container) {
 	GMenu *menu = g_menu_new(), *adding = g_menu_new(), *kinds = g_menu_new(), *removing = g_menu_new();
-	if (has_parent)
-		g_menu_append(adding, TEXT_JSON_INSERT_AFTER, "row.insert-after");
+	g_menu_append(adding, TEXT_JSON_INSERT_AFTER, "row.insert-after");
 	if (is_container)
 		g_menu_append(adding, TEXT_JSON_ADD_INSIDE, "row.add-inside");
-	if (has_parent)
-		g_menu_append(adding, TEXT_JSON_DUPLICATE, "row.duplicate");
-	for (guint index = 0; has_parent && index < G_N_ELEMENTS(KINDS); index++) {
+	g_menu_append(adding, TEXT_JSON_DUPLICATE, "row.duplicate");
+	for (guint index = 0; index < G_N_ELEMENTS(KINDS); index++) {
 		g_autofree char *action = g_strdup_printf("row.set-kind::%s", KINDS[index].id);
 		g_menu_append(kinds, KINDS[index].label, action);
 	}
-	if (has_parent)
-		g_menu_append(removing, TEXT_JSON_REMOVE, "row.remove");
+	g_menu_append(removing, TEXT_JSON_REMOVE, "row.remove");
 	g_menu_append_section(menu, NULL, G_MENU_MODEL(adding));
-	if (has_parent)
-		g_menu_append_submenu(menu, TEXT_JSON_CHANGE_TO, G_MENU_MODEL(kinds));
+	g_menu_append_submenu(menu, TEXT_JSON_CHANGE_TO, G_MENU_MODEL(kinds));
 	g_menu_append_section(menu, NULL, G_MENU_MODEL(removing));
 	g_object_unref(adding);
 	g_object_unref(kinds);
@@ -439,7 +588,18 @@ static GMenuModel *create_menu(gboolean is_container, gboolean has_parent) {
 }
 
 
-static void add_row_actions(GtkWidget *row, RowTarget *target) {
+/* Rows share one menu for groups and lists and one for plain values, since the actions find the row themselves */
+static GMenuModel *get_menu(gboolean is_container) {
+	static GMenuModel *container_menu, *value_menu;
+	if (!container_menu) {
+		container_menu = create_menu(TRUE);
+		value_menu = create_menu(FALSE);
+	}
+	return is_container ? container_menu : value_menu;
+}
+
+
+static void add_row_actions(RowParts *parts) {
 	static const GActionEntry ENTRIES[] = {
 		{"insert-after", on_insert_after, NULL, NULL, NULL, {0}},
 		{"add-inside", on_add_inside, NULL, NULL, NULL, {0}},
@@ -448,14 +608,27 @@ static void add_row_actions(GtkWidget *row, RowTarget *target) {
 		{"set-kind", on_set_kind, "s", NULL, NULL, {0}},
 	};
 	GSimpleActionGroup *actions = g_simple_action_group_new();
-	g_action_map_add_action_entries(G_ACTION_MAP(actions), ENTRIES, G_N_ELEMENTS(ENTRIES), target);
-	gtk_widget_insert_action_group(row, "row", G_ACTION_GROUP(actions));
+	g_action_map_add_action_entries(G_ACTION_MAP(actions), ENTRIES, G_N_ELEMENTS(ENTRIES), parts);
+	gtk_widget_insert_action_group(parts->row, "row", G_ACTION_GROUP(actions));
 	g_object_unref(actions);
 }
 
 
+/* The menu is built when first opened instead of for every row shown, since building one is slow */
+static void on_menu_needed(GtkMenuButton *button, gpointer data) {
+	RowParts *parts = data;
+	JsonEditor *editor = parts->editor;
+	guint position = gtk_list_item_get_position(parts->list_item);
+	gboolean is_container = position < editor->shown->len
+		&& is_container_value(get_tree_row(editor->shown, position)->value);
+	gtk_menu_button_set_menu_model(button, get_menu(is_container));
+}
+
+
 /* A right click opens the same menu as the row's button, at the pointer */
-static void on_secondary_click(GtkGestureClick *gesture, int presses, double x, double y, GtkWidget *menu_button) {
+static void on_secondary_click(GtkGestureClick *gesture, int presses, double x, double y, RowParts *parts) {
+	GtkWidget *menu_button = parts->menu_button;
+	on_menu_needed(GTK_MENU_BUTTON(menu_button), parts);
 	GtkPopover *popover = gtk_menu_button_get_popover(GTK_MENU_BUTTON(menu_button));
 	GtkWidget *row = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
 	graphene_point_t point;
@@ -469,10 +642,14 @@ static void on_secondary_click(GtkGestureClick *gesture, int presses, double x, 
 /* ==================================== Dragging into order ==================================== */
 
 
-static GdkContentProvider *on_drag_prepare(GtkDragSource *source, double x, double y, RowTarget *target) {
-	g_clear_pointer(&target->editor->drag_path, g_array_unref);
-	target->editor->drag_path = g_array_ref(target->path);
-	return gdk_content_provider_new_typed(G_TYPE_STRING, target->fold_key);
+static GdkContentProvider *on_drag_prepare(GtkDragSource *source, double x, double y, RowParts *parts) {
+	JsonEditor *editor = parts->editor;
+	g_clear_pointer(&editor->drag_path, g_array_unref);
+	editor->drag_path = get_row_path(parts);
+	if (!editor->drag_path)
+		return NULL;
+	g_autofree char *key = get_fold_key(editor->shown, gtk_list_item_get_position(parts->list_item));
+	return gdk_content_provider_new_typed(G_TYPE_STRING, key);
 }
 
 
@@ -494,12 +671,13 @@ static gboolean is_sibling(const GArray *first, const GArray *second) {
 
 
 /* A dropped member moves to just after the row it is dropped on, among the same siblings only */
-static gboolean on_drop(GtkDropTarget *drop, const GValue *value, double x, double y, RowTarget *target) {
-	JsonEditor *editor = target->editor;
+static gboolean on_drop(GtkDropTarget *drop, const GValue *value, double x, double y, RowParts *parts) {
+	JsonEditor *editor = parts->editor;
 	GArray *from = editor->drag_path;
-	if (!is_sibling(from, target->path))
+	g_autoptr(GArray) target_path = get_row_path(parts);
+	if (!target_path || !is_sibling(from, target_path))
 		return FALSE;
-	guint from_index = path_index(from, from->len - 1), to_index = path_index(target->path, target->path->len - 1);
+	guint from_index = path_index(from, from->len - 1), to_index = path_index(target_path, target_path->len - 1);
 	JsonValue *parent = NULL;
 	JsonValue *moved = find_value(editor, from, &parent);
 	if (!moved || !parent || from_index == to_index)
@@ -512,7 +690,6 @@ static gboolean on_drop(GtkDropTarget *drop, const GValue *value, double x, doub
 	begin_change(editor);
 	remove_item(editor, parent, from_index);
 	JsonValue *new_parent = NULL;
-	g_autoptr(GArray) target_path = g_array_copy(target->path);
 	guint adjusted = from_index < to_index ? to_index - 1 : to_index;
 	g_array_index(target_path, guint, target_path->len - 1) = adjusted;
 	/* After removal the dropped-on row may have moved up one, and the member keeps its own name */
@@ -533,10 +710,6 @@ static gboolean on_drop(GtkDropTarget *drop, const GValue *value, double x, doub
 /* ==================================== Building the rows ==================================== */
 
 
-static void build_container(JsonEditor *editor, JsonValue *container, GArray *path, const char *fold_key,
-	int depth);
-
-
 static GtkWidget *create_part(GtkWidget *widget, const char *css_class) {
 	gtk_widget_add_css_class(widget, css_class);
 	gtk_widget_set_valign(widget, GTK_ALIGN_CENTER);
@@ -544,22 +717,116 @@ static GtkWidget *create_part(GtkWidget *widget, const char *css_class) {
 }
 
 
-static GtkWidget *create_label(const char *text, const char *css_class) {
-	GtkWidget *label = gtk_label_new(text);
+static GtkWidget *create_label(const char *css_class) {
+	GtkWidget *label = gtk_label_new(NULL);
 	gtk_label_set_xalign(GTK_LABEL(label), 0);
 	return create_part(label, css_class);
 }
 
 
-static GtkWidget *create_editable(const char *text, const char *css_class, GCallback on_edited, RowTarget *target) {
-	GtkWidget *label = gtk_editable_label_new(text);
+static GtkWidget *create_editable(const char *css_class, GCallback on_edited, RowParts *parts) {
+	GtkWidget *label = gtk_editable_label_new("");
 	/* The label and its entry share one size, which would otherwise be a blank entry's, spacing out the names,
 	 * so the entry asks only for the width of its text */
 	GtkEditable *entry = gtk_editable_get_delegate(GTK_EDITABLE(label));
 	if (GTK_IS_TEXT(entry))
 		gtk_text_set_propagate_text_width(GTK_TEXT(entry), TRUE);
-	g_signal_connect(label, "notify::editing", on_edited, target);
+	g_signal_connect(label, "notify::editing", on_edited, parts);
 	return create_part(label, css_class);
+}
+
+
+static void add_drag_and_drop(RowParts *parts) {
+	GtkDragSource *source = gtk_drag_source_new();
+	gtk_drag_source_set_actions(source, GDK_ACTION_MOVE);
+	g_signal_connect(source, "prepare", G_CALLBACK(on_drag_prepare), parts);
+	g_signal_connect(source, "drag-begin", G_CALLBACK(on_drag_begin), parts->row);
+	gtk_widget_add_controller(parts->row, GTK_EVENT_CONTROLLER(source));
+	GtkDropTarget *drop = gtk_drop_target_new(G_TYPE_STRING, GDK_ACTION_MOVE);
+	g_signal_connect(drop, "drop", G_CALLBACK(on_drop), parts);
+	gtk_widget_add_controller(parts->row, GTK_EVENT_CONTROLLER(drop));
+}
+
+
+static GtkWidget *create_name_part(RowParts *parts) {
+	return create_editable("json-name", G_CALLBACK(on_name_edited), parts);
+}
+
+
+static GtkWidget *create_position_part(RowParts *parts) {
+	return create_label("json-index");
+}
+
+
+static GtkWidget *create_text_part(RowParts *parts) {
+	return create_editable("json-string", G_CALLBACK(on_value_edited), parts);
+}
+
+
+static GtkWidget *create_number_part(RowParts *parts) {
+	return create_editable("json-number", G_CALLBACK(on_value_edited), parts);
+}
+
+
+static GtkWidget *create_switch_part(RowParts *parts) {
+	GtkWidget *check = create_part(gtk_check_button_new(), "json-constant");
+	g_signal_connect(check, "toggled", G_CALLBACK(on_switch_toggled), parts);
+	return check;
+}
+
+
+static GtkWidget *create_plain_part(RowParts *parts) {
+	return create_label("json-constant");
+}
+
+
+/* Shows a row's name or value widget, making it the first time the row needs that kind, since most rows only
+ * ever show one or two of the kinds and making all of them slowed down opening */
+static GtkWidget *show_part(RowParts *parts, GtkWidget **part, GtkWidget *(*create)(RowParts *parts),
+	GtkWidget *after) {
+	if (!*part) {
+		*part = create(parts);
+		gtk_box_insert_child_after(GTK_BOX(parts->row), *part, after);
+	}
+	gtk_widget_set_visible(*part, TRUE);
+	return *part;
+}
+
+
+/* One reused row with the fold arrow, the name or position, the value and a menu that shows on hover */
+static void set_up_row(GtkSignalListItemFactory *factory, GtkListItem *list_item, JsonEditor *editor) {
+	RowParts *parts = g_new0(RowParts, 1);
+	parts->editor = editor;
+	parts->list_item = list_item;
+	parts->row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+	gtk_widget_add_css_class(parts->row, "json-row");
+	parts->fold = gtk_button_new();
+	gtk_widget_add_css_class(parts->fold, "flat");
+	gtk_widget_add_css_class(parts->fold, "json-fold");
+	g_signal_connect(parts->fold, "clicked", G_CALLBACK(on_fold_clicked), parts);
+	parts->fold_space = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+	gtk_widget_set_size_request(parts->fold_space, FOLD_WIDTH_PIXELS, -1);
+	parts->colon = create_label("json-colon");
+	gtk_label_set_text(GTK_LABEL(parts->colon), ":");
+	GtkWidget *spacer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+	gtk_widget_set_hexpand(spacer, TRUE);
+	parts->menu_button = gtk_menu_button_new();
+	gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(parts->menu_button), "view-more-symbolic");
+	gtk_menu_button_set_create_popup_func(GTK_MENU_BUTTON(parts->menu_button), on_menu_needed, parts, NULL);
+	gtk_widget_add_css_class(parts->menu_button, "flat");
+	gtk_widget_add_css_class(parts->menu_button, "json-menu");
+	GtkWidget *children[] = {parts->fold, parts->fold_space, parts->colon, spacer, parts->menu_button};
+	for (guint index = 0; index < G_N_ELEMENTS(children); index++)
+		gtk_box_append(GTK_BOX(parts->row), children[index]);
+	add_row_actions(parts);
+	GtkGesture *secondary = gtk_gesture_click_new();
+	gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(secondary), GDK_BUTTON_SECONDARY);
+	g_signal_connect(secondary, "pressed", G_CALLBACK(on_secondary_click), parts);
+	gtk_widget_add_controller(parts->row, GTK_EVENT_CONTROLLER(secondary));
+	add_drag_and_drop(parts);
+	g_object_set_data_full(G_OBJECT(parts->row), PARTS_KEY, parts, g_free);
+	gtk_list_item_set_child(list_item, parts->row);
+	gtk_list_item_set_activatable(list_item, FALSE);
 }
 
 
@@ -571,98 +838,123 @@ static char *describe_container(const JsonValue *value) {
 }
 
 
-static GtkWidget *create_value_part(JsonEditor *editor, JsonValue *value, RowTarget *target) {
-	switch (value->kind) {
-	case JSON_STRING:
-		return create_editable(value->string, "json-string", G_CALLBACK(on_value_edited), target);
-	case JSON_NUMBER: {
-		g_autofree char *source = g_strndup(editor->text + value->start, value->end - value->start);
-		return create_editable(source, "json-number", G_CALLBACK(on_value_edited), target);
-	}
-	case JSON_BOOLEAN: {
-		GtkWidget *check = gtk_check_button_new_with_label(value->boolean ? "true" : "false");
+/* Shows the one value widget that fits the value's kind and fills it in */
+static void bind_value(RowParts *parts, JsonValue *value) {
+	if (value->kind == JSON_STRING) {
+		GtkWidget *text = show_part(parts, &parts->text_value, create_text_part, parts->colon);
+		gtk_editable_set_text(GTK_EDITABLE(text), value->string);
+	} else if (value->kind == JSON_NUMBER) {
+		g_autofree char *source = g_strndup(parts->editor->shown_text + value->start, value->end - value->start);
+		GtkWidget *number = show_part(parts, &parts->number_value, create_number_part, parts->colon);
+		gtk_editable_set_text(GTK_EDITABLE(number), source);
+	} else if (value->kind == JSON_BOOLEAN) {
+		GtkWidget *check = show_part(parts, &parts->switch_value, create_switch_part, parts->colon);
+		gtk_check_button_set_label(GTK_CHECK_BUTTON(check), value->boolean ? "true" : "false");
 		gtk_check_button_set_active(GTK_CHECK_BUTTON(check), value->boolean);
-		g_signal_connect(check, "toggled", G_CALLBACK(on_switch_toggled), target);
-		return create_part(check, "json-constant");
-	}
-	case JSON_NULL:
-		return create_label("null", "json-constant");
-	default: {
-		g_autofree char *summary = describe_container(value);
-		return create_label(summary, "json-count");
-	}
+	} else {
+		GtkWidget *label = show_part(parts, &parts->plain_value, create_plain_part, parts->colon);
+		g_autofree char *summary = value->kind == JSON_NULL ? g_strdup("null") : describe_container(value);
+		gtk_label_set_text(GTK_LABEL(label), summary);
+		gtk_widget_remove_css_class(label, value->kind == JSON_NULL ? "json-count" : "json-constant");
+		gtk_widget_add_css_class(label, value->kind == JSON_NULL ? "json-constant" : "json-count");
 	}
 }
 
 
-/* One row with the fold arrow, the name or position, the value and a menu that shows on hover */
-static void add_row(JsonEditor *editor, JsonValue *parent, guint index, GArray *parent_path,
-	const char *parent_key, int depth) {
-	JsonValue *value = g_ptr_array_index(parent->items, index);
-	const char *name = parent->names ? g_ptr_array_index(parent->names, index) : NULL;
-	RowTarget *target = g_new0(RowTarget, 1);
-	target->editor = editor;
-	target->path = g_array_copy(parent_path);
-	g_array_append_val(target->path, index);
-	target->fold_key = name ? g_strconcat(parent_key, "/", name, NULL) : g_strdup_printf("%s/%u", parent_key, index);
-	gboolean is_container = value->kind == JSON_OBJECT || value->kind == JSON_ARRAY;
-	gboolean is_folded = g_hash_table_contains(editor->collapsed, target->fold_key);
-	GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-	gtk_widget_add_css_class(row, "json-row");
-	gtk_widget_set_margin_start(row, depth * LEVEL_INDENT_PIXELS);
-	if (is_container) {
-		GtkWidget *fold = gtk_button_new_from_icon_name(is_folded ? "pan-end-symbolic" : "pan-down-symbolic");
-		gtk_widget_add_css_class(fold, "flat");
-		gtk_widget_add_css_class(fold, "json-fold");
-		g_signal_connect(fold, "clicked", G_CALLBACK(on_fold_clicked), target);
-		gtk_box_append(GTK_BOX(row), fold);
-	} else {
-		GtkWidget *space = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-		gtk_widget_set_size_request(space, FOLD_WIDTH_PIXELS, -1);
-		gtk_box_append(GTK_BOX(row), space);
-	}
+static void bind_row(GtkSignalListItemFactory *factory, GtkListItem *list_item, JsonEditor *editor) {
+	RowParts *parts = g_object_get_data(G_OBJECT(gtk_list_item_get_child(list_item)), PARTS_KEY);
+	guint position = gtk_list_item_get_position(list_item);
+	if (position >= editor->shown->len)
+		return;
+	TreeRow *row = get_tree_row(editor->shown, position);
+	gboolean is_container = is_container_value(row->value);
+	const char *name = get_row_name(row);
+	parts->is_binding = TRUE;
+	gtk_widget_set_margin_start(parts->row, row->depth * LEVEL_INDENT_PIXELS);
+	gtk_widget_set_visible(parts->fold, is_container);
+	gtk_widget_set_visible(parts->fold_space, !is_container);
+	gtk_button_set_icon_name(GTK_BUTTON(parts->fold), row->is_folded ? "pan-end-symbolic" : "pan-down-symbolic");
+	GtkWidget *optional[] = {parts->name, parts->position, parts->text_value, parts->number_value,
+		parts->switch_value, parts->plain_value};
+	for (guint index = 0; index < G_N_ELEMENTS(optional); index++)
+		if (optional[index])
+			gtk_widget_set_visible(optional[index], FALSE);
 	if (name) {
-		gtk_box_append(GTK_BOX(row), create_editable(name, "json-name", G_CALLBACK(on_name_edited), target));
+		GtkWidget *label = show_part(parts, &parts->name, create_name_part, parts->fold_space);
+		gtk_editable_set_text(GTK_EDITABLE(label), name);
 	} else {
-		g_autofree char *position = g_strdup_printf("%u", index);
-		gtk_box_append(GTK_BOX(row), create_label(position, "json-index"));
+		g_autofree char *index = g_strdup_printf("%u", row->index);
+		GtkWidget *label = show_part(parts, &parts->position, create_position_part, parts->fold_space);
+		gtk_label_set_text(GTK_LABEL(label), index);
 	}
-	gtk_box_append(GTK_BOX(row), create_label(":", "json-colon"));
-	gtk_box_append(GTK_BOX(row), create_value_part(editor, value, target));
-	GtkWidget *spacer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-	gtk_widget_set_hexpand(spacer, TRUE);
-	gtk_box_append(GTK_BOX(row), spacer);
-	GtkWidget *menu_button = gtk_menu_button_new();
-	gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(menu_button), "view-more-symbolic");
-	g_autoptr(GMenuModel) menu = create_menu(is_container, TRUE);
-	gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(menu_button), menu);
-	gtk_widget_add_css_class(menu_button, "flat");
-	gtk_widget_add_css_class(menu_button, "json-menu");
-	gtk_box_append(GTK_BOX(row), menu_button);
-	add_row_actions(row, target);
-	GtkGesture *secondary = gtk_gesture_click_new();
-	gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(secondary), GDK_BUTTON_SECONDARY);
-	g_signal_connect(secondary, "pressed", G_CALLBACK(on_secondary_click), menu_button);
-	gtk_widget_add_controller(row, GTK_EVENT_CONTROLLER(secondary));
-	GtkDragSource *source = gtk_drag_source_new();
-	gtk_drag_source_set_actions(source, GDK_ACTION_MOVE);
-	g_signal_connect(source, "prepare", G_CALLBACK(on_drag_prepare), target);
-	g_signal_connect(source, "drag-begin", G_CALLBACK(on_drag_begin), row);
-	gtk_widget_add_controller(row, GTK_EVENT_CONTROLLER(source));
-	GtkDropTarget *drop = gtk_drop_target_new(G_TYPE_STRING, GDK_ACTION_MOVE);
-	g_signal_connect(drop, "drop", G_CALLBACK(on_drop), target);
-	gtk_widget_add_controller(row, GTK_EVENT_CONTROLLER(drop));
-	g_object_set_data_full(G_OBJECT(row), TARGET_KEY, target, free_target);
-	gtk_box_append(GTK_BOX(editor->rows), row);
-	if (is_container && !is_folded)
-		build_container(editor, value, target->path, target->fold_key, depth + 1);
+	bind_value(parts, row->value);
+	/* A row whose menu was already opened keeps it, so it is swapped when the row now shows the other kind */
+	GMenuModel *menu = gtk_menu_button_get_menu_model(GTK_MENU_BUTTON(parts->menu_button));
+	if (menu && menu != get_menu(is_container))
+		gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(parts->menu_button), get_menu(is_container));
+	parts->is_binding = FALSE;
 }
 
 
-static void build_container(JsonEditor *editor, JsonValue *container, GArray *path, const char *fold_key,
-	int depth) {
-	for (guint index = 0; index < container->items->len; index++)
-		add_row(editor, container, index, path, fold_key, depth);
+/* Lists every value that is not inside a folded group, in reading order, without making any widgets */
+static void add_rows(JsonEditor *editor, GArray *rows, JsonValue *container, guint parent_row, int depth) {
+	gboolean has_folds = g_hash_table_size(editor->collapsed) > 0;
+	for (guint index = 0; index < container->items->len; index++) {
+		JsonValue *value = g_ptr_array_index(container->items, index);
+		TreeRow row = {value, container, index, parent_row, depth, FALSE};
+		g_array_append_val(rows, row);
+		if (!is_container_value(value))
+			continue;
+		guint position = rows->len - 1;
+		if (has_folds) {
+			g_autofree char *key = get_fold_key(rows, position);
+			get_tree_row(rows, position)->is_folded = g_hash_table_contains(editor->collapsed, key);
+		}
+		if (!get_tree_row(rows, position)->is_folded)
+			add_rows(editor, rows, value, position, depth + 1);
+	}
+}
+
+
+/* Whether a shown row would look the same for the newly read value, so it need not be filled in again */
+static gboolean is_same_row(JsonEditor *editor, const TreeRow *old, const TreeRow *new) {
+	if (old->depth != new->depth || old->index != new->index || old->is_folded != new->is_folded
+		|| old->value->kind != new->value->kind || g_strcmp0(get_row_name(old), get_row_name(new)) != 0)
+		return FALSE;
+	if (is_container_value(new->value))
+		return old->value->items->len == new->value->items->len;
+	gsize length = new->value->end - new->value->start;
+	return old->value->end - old->value->start == length
+		&& memcmp(editor->shown_text + old->value->start, editor->text + new->value->start, length) == 0;
+}
+
+
+/* Swaps in the rows of the text read last, telling the list only about the stretch that changed
+ * so the scroll position and every unchanged row stay as they were */
+static void show_rows(JsonEditor *editor) {
+	GArray *rows = g_array_new(FALSE, FALSE, sizeof(TreeRow));
+	if (is_container_value(editor->root))
+		add_rows(editor, rows, editor->root, NO_PARENT, 0);
+	GArray *old_rows = editor->shown;
+	guint old_count = old_rows->len, new_count = rows->len, same_start = 0, same_end = 0;
+	while (same_start < old_count && same_start < new_count
+		&& is_same_row(editor, get_tree_row(old_rows, same_start), get_tree_row(rows, same_start)))
+		same_start++;
+	while (same_end < old_count - same_start && same_end < new_count - same_start
+		&& is_same_row(editor, get_tree_row(old_rows, old_count - 1 - same_end),
+			get_tree_row(rows, new_count - 1 - same_end)))
+		same_end++;
+	editor->shown = rows;
+	g_array_unref(old_rows);
+	if (editor->shown_text != editor->text) {
+		g_clear_pointer(&editor->shown_root, free_json);
+		g_free(editor->shown_text);
+	}
+	editor->shown_root = editor->root;
+	editor->shown_text = editor->text;
+	editor->model->count = new_count;
+	g_list_model_items_changed(G_LIST_MODEL(editor->model), same_start, old_count - same_start - same_end,
+		new_count - same_start - same_end);
 }
 
 
@@ -691,27 +983,79 @@ static void apply_part_colours(JsonEditor *editor) {
 }
 
 
+/* Rows ignore the pointer and keyboard instead of greying out, so they look the same while they wait */
+static void set_rows_usable(JsonEditor *editor, gboolean is_usable) {
+	gtk_widget_set_can_target(editor->stack, is_usable);
+	gtk_widget_set_can_focus(editor->stack, is_usable);
+}
+
+
 static void rebuild(JsonEditor *editor) {
-	GtkWidget *child;
-	while ((child = gtk_widget_get_first_child(editor->rows)))
-		gtk_box_remove(GTK_BOX(editor->rows), child);
-	gboolean is_container = editor->root && (editor->root->kind == JSON_OBJECT || editor->root->kind == JSON_ARRAY);
+	gboolean is_container = is_container_value(editor->root);
 	if (!is_container && editor->root)
 		gtk_label_set_text(GTK_LABEL(editor->problem), TEXT_JSON_NOT_CONTAINER);
-	gtk_stack_set_visible_child_name(GTK_STACK(editor->stack), is_container ? "rows" : "problem");
-	if (!is_container)
-		return;
-	apply_part_colours(editor);
-	g_autoptr(GArray) path = g_array_new(FALSE, FALSE, sizeof(guint));
-	build_container(editor, editor->root, path, "", 0);
-	if (editor->root->items->len == 0) {
-		GtkWidget *add = gtk_button_new_with_label(editor->root->kind == JSON_OBJECT ? TEXT_JSON_ADD_FIELD
+	if (is_container)
+		gtk_button_set_label(GTK_BUTTON(editor->add_first), editor->root->kind == JSON_OBJECT ? TEXT_JSON_ADD_FIELD
 			: TEXT_JSON_ADD_ITEM);
-		gtk_widget_add_css_class(add, "flat");
-		gtk_widget_set_halign(add, GTK_ALIGN_START);
-		gtk_actionable_set_action_name(GTK_ACTIONABLE(add), "tree.add-first");
-		gtk_box_append(GTK_BOX(editor->rows), add);
+	apply_part_colours(editor);
+	show_rows(editor);
+	const char *page = !is_container ? "problem" : editor->root->items->len == 0 ? "empty" : "rows";
+	gtk_stack_set_visible_child_name(GTK_STACK(editor->stack), page);
+	set_rows_usable(editor, !editor->is_preview);
+}
+
+
+static void free_parse_job(gpointer data) {
+	ParseJob *job = data;
+	g_free(job->text);
+	g_clear_object(&job->file);
+	g_free(job);
+}
+
+
+static void parse_in_thread(GTask *task, gpointer source, gpointer data, GCancellable *cancellable) {
+	ParseJob *job = data;
+	g_autoptr(GError) error = NULL;
+	if (job->file && !g_file_load_contents(job->file, cancellable, &job->text, NULL, NULL, &error)) {
+		g_task_return_error(task, g_steal_pointer(&error));
+		return;
 	}
+	JsonValue *root = parse_json(job->text, -1, &error);
+	if (!root) {
+		g_task_return_error(task, g_steal_pointer(&error));
+		return;
+	}
+	g_task_return_pointer(task, root, (GDestroyNotify)free_json);
+}
+
+
+static void on_text_parsed(GObject *source, GAsyncResult *result, gpointer data) {
+	GTask *task = G_TASK(result);
+	if (g_cancellable_is_cancelled(g_task_get_cancellable(task)))
+		return;
+	JsonEditor *editor = data;
+	g_clear_object(&editor->reading);
+	g_autoptr(GError) error = NULL;
+	JsonValue *root = g_task_propagate_pointer(task, &error);
+	ParseJob *job = g_task_get_task_data(task);
+	take_text(editor, job->text ? g_steal_pointer(&job->text) : g_strdup(""), root, error);
+	rebuild(editor);
+	editor->on_ready(editor->ready_data);
+}
+
+
+/* Big files take a moment to parse, so that runs on a worker while the rows already shown wait unclickable,
+ * since their offsets point into the text as it was */
+static void start_reading(JsonEditor *editor, ParseJob *job) {
+	cancel_reading(editor);
+	editor->reading = g_cancellable_new();
+	if (editor->shown->len == 0)
+		gtk_stack_set_visible_child_name(GTK_STACK(editor->stack), "loading");
+	set_rows_usable(editor, FALSE);
+	GTask *task = g_task_new(NULL, editor->reading, on_text_parsed, editor);
+	g_task_set_task_data(task, job, free_parse_job);
+	g_task_run_in_thread(task, parse_in_thread);
+	g_object_unref(task);
 }
 
 
@@ -733,7 +1077,7 @@ static void schedule_rebuild(JsonEditor *editor) {
 
 /* Undo, reloading or the text view change the text, which the rows then follow */
 static void on_text_changed(GtkTextBuffer *buffer, JsonEditor *editor) {
-	if (!editor->is_writing && gtk_widget_get_mapped(editor->stack))
+	if (!editor->is_writing && !editor->is_preview && gtk_widget_get_mapped(editor->stack))
 		schedule_rebuild(editor);
 }
 
@@ -751,23 +1095,51 @@ static void on_add_first(GSimpleAction *action, GVariant *parameter, gpointer da
 /* ==================================== Lifetime ==================================== */
 
 
-GtkWidget *create_json_editor(GtkTextBuffer *buffer) {
-	JsonEditor *editor = g_new0(JsonEditor, 1);
-	editor->buffer = buffer;
-	editor->indent = g_strdup(DEFAULT_INDENT);
-	editor->collapsed = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
-	editor->rows = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-	gtk_widget_add_css_class(editor->rows, "json-tree");
-	gtk_widget_add_css_class(editor->rows, "code-text");
+static GtkWidget *create_rows_view(JsonEditor *editor) {
+	editor->model = g_object_new(TREE_ROWS_TYPE, NULL);
+	GtkListItemFactory *factory = gtk_signal_list_item_factory_new();
+	g_signal_connect(factory, "setup", G_CALLBACK(set_up_row), editor);
+	g_signal_connect(factory, "bind", G_CALLBACK(bind_row), editor);
+	GtkWidget *view = gtk_list_view_new(GTK_SELECTION_MODEL(gtk_no_selection_new(G_LIST_MODEL(editor->model))),
+		factory);
+	gtk_widget_add_css_class(view, "json-tree");
+	gtk_widget_add_css_class(view, "code-text");
 	GtkWidget *scroller = gtk_scrolled_window_new();
 	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
-	gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), editor->rows);
+	gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), view);
 	gtk_widget_set_vexpand(scroller, TRUE);
+	return scroller;
+}
+
+
+static GtkWidget *create_empty_page(JsonEditor *editor) {
+	editor->add_first = gtk_button_new();
+	gtk_widget_add_css_class(editor->add_first, "flat");
+	gtk_widget_set_halign(editor->add_first, GTK_ALIGN_START);
+	gtk_widget_set_valign(editor->add_first, GTK_ALIGN_START);
+	gtk_actionable_set_action_name(GTK_ACTIONABLE(editor->add_first), "tree.add-first");
+	GtkWidget *page = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+	gtk_widget_add_css_class(page, "json-tree");
+	gtk_box_append(GTK_BOX(page), editor->add_first);
+	return page;
+}
+
+
+GtkWidget *create_json_editor(GtkTextBuffer *buffer, JsonEditorReady on_ready, gpointer data) {
+	JsonEditor *editor = g_new0(JsonEditor, 1);
+	editor->buffer = buffer;
+	editor->on_ready = on_ready;
+	editor->ready_data = data;
+	editor->indent = g_strdup(DEFAULT_INDENT);
+	editor->collapsed = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+	editor->shown = g_array_new(FALSE, FALSE, sizeof(TreeRow));
 	editor->problem = gtk_label_new(NULL);
 	gtk_label_set_wrap(GTK_LABEL(editor->problem), TRUE);
 	gtk_widget_add_css_class(editor->problem, "dim-label");
 	editor->stack = gtk_stack_new();
-	gtk_stack_add_named(GTK_STACK(editor->stack), scroller, "rows");
+	gtk_stack_add_named(GTK_STACK(editor->stack), create_loading_spinner(), "loading");
+	gtk_stack_add_named(GTK_STACK(editor->stack), create_rows_view(editor), "rows");
+	gtk_stack_add_named(GTK_STACK(editor->stack), create_empty_page(editor), "empty");
 	gtk_stack_add_named(GTK_STACK(editor->stack), editor->problem, "problem");
 	gtk_widget_add_css_class(editor->stack, "json-page");
 	static const GActionEntry ENTRIES[] = {{"add-first", on_add_first, NULL, NULL, NULL, {0}}};
@@ -784,8 +1156,20 @@ GtkWidget *create_json_editor(GtkTextBuffer *buffer) {
 void reload_json_editor(GtkWidget *widget) {
 	JsonEditor *editor = get_editor(widget);
 	g_clear_handle_id(&editor->rebuild_source, g_source_remove);
-	read_text(editor);
-	rebuild(editor);
+	editor->is_preview = FALSE;
+	ParseJob *job = g_new0(ParseJob, 1);
+	job->text = get_buffer_text(editor);
+	start_reading(editor, job);
+}
+
+
+void preview_json_editor_file(GtkWidget *widget, GFile *file) {
+	JsonEditor *editor = get_editor(widget);
+	g_clear_handle_id(&editor->rebuild_source, g_source_remove);
+	editor->is_preview = TRUE;
+	ParseJob *job = g_new0(ParseJob, 1);
+	job->file = g_object_ref(file);
+	start_reading(editor, job);
 }
 
 
@@ -802,6 +1186,14 @@ void free_json_editor(GtkWidget *widget) {
 		return;
 	g_signal_handlers_disconnect_by_data(editor->buffer, editor);
 	g_clear_handle_id(&editor->rebuild_source, g_source_remove);
+	cancel_reading(editor);
+	/* Rows still on screen read the shown values until the widgets go, so they show nothing from now on */
+	editor->model->count = 0;
+	g_array_set_size(editor->shown, 0);
+	if (editor->shown_text != editor->text) {
+		g_clear_pointer(&editor->shown_root, free_json);
+		g_free(editor->shown_text);
+	}
 	g_clear_pointer(&editor->root, free_json);
 	g_clear_pointer(&editor->drag_path, g_array_unref);
 	g_hash_table_unref(editor->collapsed);

@@ -162,6 +162,13 @@ popover > contents {
 
 .json-tree {
 	padding: 8px 12px;
+	background: none;
+}
+
+/* The list's own row only holds the tree row, which draws its own hover */
+.json-tree > row {
+	padding: 0;
+	background: none;
 }
 
 .json-row {

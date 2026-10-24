@@ -21,6 +21,8 @@
 #define DARK_SCHEME "Adwaita-dark"
 /* How much of a file is read to tell binary from text */
 #define SNIFF_BYTES 8192
+/* Reading runs just below drawing, so the loading spinner and the rest of the window keep painting */
+#define LOAD_PRIORITY (GDK_PRIORITY_REDRAW + 1)
 /* Room below the last line, so it can be scrolled up from the bottom edge */
 #define SCROLL_PAST_END_PIXELS 320
 #define JSON_LANGUAGE "json"
@@ -91,6 +93,8 @@ struct Editor {
 	GtkEventController *input;
 	/* The text view and the visual JSON editor take turns in this stack, the visual one made when first asked for */
 	GtkWidget *pages, *visual, *hex, *loading, *overlay;
+	/* Whether the visual editor was chosen, which can be before its page shows while the rows are still read */
+	gboolean is_visual;
 	/* Set while Enter is being handled, so only a typed new line copies the indentation, not undo or pasting */
 	gboolean is_entering_line;
 	/* Set after a jump to a line, which stays in view while the lines are laid out, until the person scrolls or types */
@@ -527,17 +531,37 @@ const char *get_editor_command(Editor *editor) {
 
 /* Strict JSON marks comments as mistakes, so JSON written with comment lines uses the lenient language */
 static gboolean has_comment_lines(Document *document) {
+	static GRegex *comment;
+	if (!comment)
+		comment = g_regex_new("^\\s*(//|/\\*)", G_REGEX_MULTILINE | G_REGEX_OPTIMIZE, 0, NULL);
 	g_autofree char *text = get_document_text(document);
-	g_autoptr(GRegex) comment = g_regex_new("^\\s*(//|/\\*)", G_REGEX_MULTILINE, 0, NULL);
 	return g_regex_match(comment, text, 0, NULL);
 }
 
 
-static void choose_language(Document *document) {
+static GtkSourceLanguage *guess_language(Document *document) {
 	GFile *file = gtk_source_file_get_location(document->source_file);
 	g_autofree char *name = file ? g_file_get_basename(file) : NULL;
+	return name ? gtk_source_language_manager_guess_language(gtk_source_language_manager_get_default(), name, NULL)
+		: NULL;
+}
+
+
+static gboolean is_json_language(GtkSourceLanguage *language) {
+	const char *id = language ? gtk_source_language_get_id(language) : NULL;
+	return g_strcmp0(id, JSON_LANGUAGE) == 0 || g_strcmp0(id, LENIENT_JSON_LANGUAGE) == 0;
+}
+
+
+/* JSON files open in the visual editor when the setting asks for it, which is known from the name before loading */
+static gboolean opens_visual(Document *document) {
+	return get_switch_setting("visual-editors") && is_json_language(guess_language(document));
+}
+
+
+static void choose_language(Document *document) {
 	GtkSourceLanguageManager *languages = gtk_source_language_manager_get_default();
-	GtkSourceLanguage *language = name ? gtk_source_language_manager_guess_language(languages, name, NULL) : NULL;
+	GtkSourceLanguage *language = guess_language(document);
 	if (language && g_strcmp0(gtk_source_language_get_id(language), JSON_LANGUAGE) == 0
 		&& has_comment_lines(document))
 		language = gtk_source_language_manager_get_language(languages, LENIENT_JSON_LANGUAGE);
@@ -566,7 +590,8 @@ static void start_loading(Editor *editor) {
 		gtk_stack_remove(GTK_STACK(editor->pages), editor->loading);
 	editor->loading = create_loading_spinner();
 	gtk_stack_add_named(GTK_STACK(editor->pages), editor->loading, "loading");
-	gtk_stack_set_visible_child_name(GTK_STACK(editor->pages), "loading");
+	/* Without a fade, since the text the page leaves is already being replaced by the arriving file */
+	gtk_stack_set_visible_child_full(GTK_STACK(editor->pages), "loading", GTK_STACK_TRANSITION_TYPE_NONE);
 }
 
 
@@ -586,9 +611,9 @@ static void on_loaded(GObject *source, GAsyncResult *result, gpointer data) {
 		return;
 	document->is_loading = FALSE;
 	set_views_editable(document, TRUE);
-	for (guint index = 0; index < document->views->len; index++)
-		finish_loading(g_ptr_array_index(document->views, index));
 	if (!is_loaded && !g_error_matches(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND)) {
+		for (guint index = 0; index < document->views->len; index++)
+			finish_loading(g_ptr_array_index(document->views, index));
 		report_failure(document, error->message);
 		return;
 	}
@@ -600,8 +625,30 @@ static void on_loaded(GObject *source, GAsyncResult *result, gpointer data) {
 	notify_state(document);
 	for (guint index = 0; index < document->views->len; index++) {
 		Editor *editor = g_ptr_array_index(document->views, index);
+		/* A visual view keeps its rows and reads them again from the loaded text, unless that text cannot be shown
+		 * as rows after all, such as a file whose long lines were split */
+		if (is_editor_visual(editor) && !is_editor_json(editor))
+			set_editor_visual(editor, FALSE);
+		else if (is_editor_visual(editor))
+			reload_json_editor(editor->visual);
+		else
+			finish_loading(editor);
 		if (editor->events.loaded)
 			editor->events.loaded(editor, editor->events.data);
+	}
+}
+
+
+/* Text shows as soon as its first part is in and the rest streams in below it, while a file opening in the visual
+ * editor keeps its loading page until the rows are read */
+static void on_load_progress(goffset current_bytes, goffset total_bytes, gpointer data) {
+	Document *document = data;
+	if (opens_visual(document))
+		return;
+	for (guint index = 0; index < document->views->len; index++) {
+		Editor *editor = g_ptr_array_index(document->views, index);
+		if (g_strcmp0(gtk_stack_get_visible_child_name(GTK_STACK(editor->pages)), "loading") == 0)
+			finish_loading(editor);
 	}
 }
 
@@ -609,7 +656,7 @@ static void on_loaded(GObject *source, GAsyncResult *result, gpointer data) {
 /* Reads in the background, so the tab shows at once and the window keeps responding for huge files */
 static void load_text(Document *document) {
 	g_autoptr(GtkSourceFileLoader) loader = gtk_source_file_loader_new(document->buffer, document->source_file);
-	gtk_source_file_loader_load_async(loader, G_PRIORITY_DEFAULT, document->cancellable, NULL, NULL, NULL,
+	gtk_source_file_loader_load_async(loader, LOAD_PRIORITY, document->cancellable, on_load_progress, document, NULL,
 		on_loaded, document);
 }
 
@@ -640,6 +687,7 @@ static void on_hex_loaded(HexDocument *hex, GError *error, gpointer data) {
 	notify_state(document);
 	for (guint index = 0; index < document->views->len; index++) {
 		Editor *editor = g_ptr_array_index(document->views, index);
+		editor->is_visual = FALSE;
 		add_hex_page(editor);
 		finish_loading(editor);
 		if (editor->events.loaded)
@@ -682,15 +730,56 @@ static void on_file_opened(GObject *source, GAsyncResult *result, gpointer data)
 }
 
 
+/* Rows read while the file was still loading replace the loading page, so the wait shows one spinner throughout */
+static void on_visual_ready(gpointer data) {
+	Editor *editor = data;
+	if (editor->is_visual)
+		gtk_stack_set_visible_child_name(GTK_STACK(editor->pages), "visual");
+}
+
+
+/* The visual editor writes with the same indentation the text view would insert */
+static char *get_indent_text(Editor *editor) {
+	if (!gtk_source_view_get_insert_spaces_instead_of_tabs(editor->view))
+		return g_strdup("\t");
+	int width = gtk_source_view_get_indent_width(editor->view);
+	return g_strnfill(width > 0 ? (gsize)width : gtk_source_view_get_tab_width(editor->view), ' ');
+}
+
+
+static void add_visual_page(Editor *editor) {
+	if (!editor->visual) {
+		editor->visual = create_json_editor(get_buffer(editor), on_visual_ready, editor);
+		gtk_stack_add_named(GTK_STACK(editor->pages), editor->visual, "visual");
+	}
+	g_autofree char *indent = get_indent_text(editor);
+	set_json_editor_indent(editor->visual, indent);
+}
+
+
+/* A file opening in the visual editor shows its rows read from the file on disk while the text still loads */
+static void preview_visual(Editor *editor, GFile *file) {
+	editor->is_visual = TRUE;
+	add_visual_page(editor);
+	preview_json_editor_file(editor->visual, file);
+}
+
+
 void load_editor_file(Editor *editor, GFile *file) {
 	Document *document = editor->document;
 	gtk_source_file_set_location(document->source_file, file);
 	document->is_loading = TRUE;
 	set_views_editable(document, FALSE);
-	choose_language(document);
+	/* The language is set once the text is in, since a language matched every arriving chunk and took seconds for
+	 * big files, while once loaded only the shown lines are matched at once */
+	gtk_source_buffer_set_language(document->buffer, NULL);
 	notify_state(document);
-	for (guint index = 0; index < document->views->len; index++)
-		start_loading(g_ptr_array_index(document->views, index));
+	for (guint index = 0; index < document->views->len; index++) {
+		Editor *editor = g_ptr_array_index(document->views, index);
+		start_loading(editor);
+		if (opens_visual(document))
+			preview_visual(editor, file);
+	}
 	g_file_read_async(file, G_PRIORITY_DEFAULT, document->cancellable, on_file_opened, document);
 }
 
@@ -890,49 +979,36 @@ GtkWidget *get_editor_hex_view(Editor *editor) {
 gboolean is_editor_json(Editor *editor) {
 	if (editor->document->hex)
 		return FALSE;
-	GtkSourceLanguage *language = gtk_source_buffer_get_language(editor->document->buffer);
-	const char *id = language ? gtk_source_language_get_id(language) : NULL;
-	return g_strcmp0(id, JSON_LANGUAGE) == 0 || g_strcmp0(id, LENIENT_JSON_LANGUAGE) == 0;
+	return is_json_language(gtk_source_buffer_get_language(editor->document->buffer));
 }
 
 
 gboolean is_editor_visual(Editor *editor) {
-	return editor->visual && g_strcmp0(gtk_stack_get_visible_child_name(GTK_STACK(editor->pages)), "visual") == 0;
-}
-
-
-/* The visual editor writes with the same indentation the text view would insert */
-static char *get_indent_text(Editor *editor) {
-	if (!gtk_source_view_get_insert_spaces_instead_of_tabs(editor->view))
-		return g_strdup("\t");
-	int width = gtk_source_view_get_indent_width(editor->view);
-	return g_strnfill(width > 0 ? (gsize)width : gtk_source_view_get_tab_width(editor->view), ' ');
+	return editor->is_visual;
 }
 
 
 void set_editor_visual(Editor *editor, gboolean is_visual) {
 	if (is_visual == is_editor_visual(editor) || (is_visual && !is_editor_json(editor)))
 		return;
+	editor->is_visual = is_visual;
 	if (!is_visual) {
 		gtk_stack_set_visible_child_name(GTK_STACK(editor->pages), "text");
 		gtk_widget_grab_focus(GTK_WIDGET(editor->view));
 		return;
 	}
-	if (!editor->visual) {
-		editor->visual = create_json_editor(get_buffer(editor));
-		gtk_stack_add_named(GTK_STACK(editor->pages), editor->visual, "visual");
-	}
-	g_autofree char *indent = get_indent_text(editor);
-	set_json_editor_indent(editor->visual, indent);
+	add_visual_page(editor);
 	reload_json_editor(editor->visual);
-	gtk_stack_set_visible_child_name(GTK_STACK(editor->pages), "visual");
+	if (g_strcmp0(gtk_stack_get_visible_child_name(GTK_STACK(editor->pages)), "loading") != 0)
+		gtk_stack_set_visible_child_name(GTK_STACK(editor->pages), "visual");
 }
 
 
 const char *get_editor_language_name(Editor *editor) {
 	if (editor->document->hex)
 		return TEXT_HEX_LANGUAGE;
-	GtkSourceLanguage *language = gtk_source_buffer_get_language(editor->document->buffer);
+	GtkSourceLanguage *language = editor->document->is_loading ? guess_language(editor->document)
+		: gtk_source_buffer_get_language(editor->document->buffer);
 	return language ? gtk_source_language_get_name(language) : TEXT_PLAIN_TEXT;
 }
 

@@ -203,8 +203,6 @@ static void on_editor_loaded(Editor *editor, gpointer data) {
 		g_object_set_data(G_OBJECT(get_editor_widget(editor)), PENDING_LINE_KEY, NULL);
 		move_editor_to_lsp_position(editor, pending_line - 1, 0);
 	}
-	if (get_switch_setting("visual-editors"))
-		set_editor_visual(editor, TRUE);
 	if (editor == get_current_editor(data))
 		refresh_window_for_editor(data);
 }
