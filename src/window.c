@@ -1046,6 +1046,7 @@ static gboolean on_close_request(GtkWindow *gtk_window, Window *window) {
 		return GDK_EVENT_STOP;
 	}
 	save_state(window);
+	hide_closing_window(gtk_window);
 	unbind_window_commands(window);
 	unwatch_settings(window);
 	unwatch_language_servers(window);

@@ -1187,9 +1187,12 @@ void free_json_editor(GtkWidget *widget) {
 	g_signal_handlers_disconnect_by_data(editor->buffer, editor);
 	g_clear_handle_id(&editor->rebuild_source, g_source_remove);
 	cancel_reading(editor);
-	/* Rows still on screen read the shown values until the widgets go, so they show nothing from now on */
+	/* The list lets go of its rows before the values they read are freed, and must hear of it or GTK aborts when
+	 * the list is destroyed with rows its model no longer has */
+	guint count = editor->model->count;
 	editor->model->count = 0;
-	g_array_set_size(editor->shown, 0);
+	g_list_model_items_changed(G_LIST_MODEL(editor->model), 0, count, 0);
+	g_array_unref(editor->shown);
 	if (editor->shown_text != editor->text) {
 		g_clear_pointer(&editor->shown_root, free_json);
 		g_free(editor->shown_text);
