@@ -951,8 +951,8 @@ static void update_inspector(gpointer data) {
 		gint64 signed_value = size == 8 ? (gint64)value : (gint64)(value << (64 - size * 8)) >> (64 - size * 8);
 		g_autofree char *unsigned_text = g_strdup_printf("%" G_GUINT64_FORMAT, value);
 		g_autofree char *signed_text = g_strdup_printf("%" G_GINT64_FORMAT, signed_value);
-		set_value(page, size_index * 2, available == size ? unsigned_text : "—");
-		set_value(page, size_index * 2 + 1, available == size ? signed_text : "—");
+		set_value(page, size_index * 2, available == size ? unsigned_text : TEXT_NO_VALUE);
+		set_value(page, size_index * 2 + 1, available == size ? signed_text : TEXT_NO_VALUE);
 	}
 	int available = 0;
 	guint32 single_bits = (guint32)read_number(page, 4, is_big, &available);
@@ -960,13 +960,13 @@ static void update_inspector(gpointer data) {
 	memcpy(&single, &single_bits, sizeof single);
 	char single_text[G_ASCII_DTOSTR_BUF_SIZE];
 	g_ascii_formatd(single_text, sizeof single_text, "%g", single);
-	set_value(page, 8, available == 4 ? single_text : "—");
+	set_value(page, 8, available == 4 ? single_text : TEXT_NO_VALUE);
 	guint64 double_bits = read_number(page, 8, is_big, &available);
 	double number = 0;
 	memcpy(&number, &double_bits, sizeof number);
 	char double_text[G_ASCII_DTOSTR_BUF_SIZE];
 	g_ascii_formatd(double_text, sizeof double_text, "%g", number);
-	set_value(page, 9, available == 8 ? double_text : "—");
+	set_value(page, 9, available == 8 ? double_text : TEXT_NO_VALUE);
 	guint8 byte = document->length ? get_byte(document, page->view->cursor) : 0;
 	char binary[9];
 	for (int bit = 0; bit < 8; bit++)

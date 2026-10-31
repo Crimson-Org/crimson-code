@@ -10,6 +10,9 @@
 #include "state.h"
 #include "window.h"
 
+/* Put before the name of a file with unsaved changes */
+#define MODIFIED_MARK "\u2022 "
+
 typedef struct Pane Pane;
 
 /* Ways to move between split panes */

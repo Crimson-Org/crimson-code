@@ -6,7 +6,6 @@
 
 #define EDITOR_KEY "editor"
 #define PANE_KEY "pane"
-#define MODIFIED_MARK "• "
 
 /* One tile of the editor area with its own tabs, which splits into more tiles like Vim windows */
 struct Pane {

@@ -235,7 +235,7 @@ static char *shorten_documentation(const char *text) {
 	for (int index = 0; kept_lines[index]; index++)
 		if (g_str_has_prefix(kept_lines[index] + strspn(kept_lines[index], " \t"), FENCE))
 			is_in_code = !is_in_code;
-	return g_strconcat(kept, is_in_code ? "\n" FENCE : "", "\n\n…", NULL);
+	return g_strconcat(kept, is_in_code ? "\n" FENCE : "", "\n\n" TEXT_CUT_OFF, NULL);
 }
 
 

@@ -14,7 +14,6 @@
 #include "terminal.h"
 #include "window-private.h"
 
-#define MODIFIED_MARK "• "
 #define BOTTOM_PANEL_MINIMUM_HEIGHT 120
 #define SIDEBAR_MINIMUM_WIDTH 160
 #define PAGE_FADE_MILLISECONDS 150
