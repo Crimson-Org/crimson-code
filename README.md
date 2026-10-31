@@ -36,12 +36,12 @@ Crimson Code is fast and light, and includes all three.
 
 ### Projects
 
-Open a folder to see its files in a sidebar, with each file in a tab and a minimap beside it.\
+Open a folder to list the folder's files in a sidebar, with each file in a tab and a minimap beside the text.\
 Split the view to show files side by side, and open a terminal in the project folder.
 
 ### Language servers
 
-Open a matching file to start its language server, such as [clangd](https://clangd.llvm.org/) for C or [Pyright](https://microsoft.github.io/pyright/) for Python.\
+Opening a file starts the matching language server, such as [clangd](https://clangd.llvm.org/) for C or [Pyright](https://microsoft.github.io/pyright/) for Python.\
 Errors and warnings appear beside the line numbers, and hovering shows the details.\
 Add any other server's command in Settings.
 
@@ -71,4 +71,4 @@ Steps:
  1. Clone using `git clone --recurse-submodules https://github.com/Crimson-Org/crimson-code`
  2. Run `sh .crimson-build/install.sh`
 
-`sh .crimson-build/uninstall.sh` removes it again.
+`sh .crimson-build/uninstall.sh` uninstalls Crimson Code.
