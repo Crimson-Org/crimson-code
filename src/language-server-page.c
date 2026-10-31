@@ -1,6 +1,6 @@
 #include <adwaita.h>
 
-#include "../lang/en.h"
+#include "lang/en.h"
 #include "language-server-page.h"
 #include "language-servers.h"
 #include "settings-dialog.h"

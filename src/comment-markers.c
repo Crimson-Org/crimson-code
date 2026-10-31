@@ -3,7 +3,7 @@
 #include <adwaita.h>
 #include <gtksourceview/gtksource.h>
 
-#include "../lang/en.h"
+#include "lang/en.h"
 #include "comment-markers.h"
 #include "common/key-store.h"
 #include "settings-dialog.h"

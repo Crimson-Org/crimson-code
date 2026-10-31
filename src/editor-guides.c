@@ -1,6 +1,6 @@
 #include <gtksourceview/gtksource.h>
 
-#include "../lang/en.h"
+#include "lang/en.h"
 #include "editor-guides.h"
 #include "settings.h"
 

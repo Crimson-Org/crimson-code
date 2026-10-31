@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./data/icons/scalable/apps/io.github.CrimsonOrg.CrimsonCode.svg" alt="Crimson Code logo" width="128" height="128">
+  <img src="./assets/icons/scalable/apps/io.github.CrimsonOrg.CrimsonCode.svg" alt="Crimson Code logo" width="128" height="128">
 </p>
 
 <h1 align="center">Crimson Code</h1>

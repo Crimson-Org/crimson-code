@@ -1,4 +1,4 @@
-#include "../lang/en.h"
+#include "lang/en.h"
 #include "find-bar.h"
 
 #define CONTEXT_KEY "find-context"

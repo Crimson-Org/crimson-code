@@ -1,6 +1,6 @@
 #include <string.h>
 
-#include "../lang/en.h"
+#include "lang/en.h"
 #include "commands.h"
 #include "common/startup.h"
 #include "hex-view.h"

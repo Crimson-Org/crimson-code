@@ -1,6 +1,6 @@
 #include <adwaita.h>
 
-#include "../lang/en.h"
+#include "lang/en.h"
 #include "comment-markers.h"
 #include "markdown.h"
 #include "plan-items.h"

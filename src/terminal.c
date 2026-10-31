@@ -11,7 +11,7 @@
 #include <glib-unix.h>
 #include <vterm.h>
 
-#include "../lang/en.h"
+#include "lang/en.h"
 #include "settings.h"
 #include "terminal.h"
 

@@ -3,7 +3,7 @@
 	<gresource prefix="/io/github/CrimsonOrg/CrimsonCode">
 		<file>style.css</file>
 		<file>icons/scalable/apps/io.github.CrimsonOrg.CrimsonCode.svg</file>
-		<file alias="common.css">../subprojects/crimson-core/data/common.css</file>
+		<file alias="common.css">../subprojects/crimson-core/assets/common.css</file>
 		<file>language-specs/jsonc.lang</file>
 		<file>language-specs/blitzmax.lang</file>
 	</gresource>

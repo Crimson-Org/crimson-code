@@ -3,7 +3,7 @@
 #include <adwaita.h>
 #include <gtksourceview/gtksource.h>
 
-#include "../lang/en.h"
+#include "lang/en.h"
 #include "json-editor.h"
 #include "build/json.h"
 #include "common/loading.h"

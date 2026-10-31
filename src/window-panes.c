@@ -1,6 +1,6 @@
 #include <string.h>
 
-#include "../lang/en.h"
+#include "lang/en.h"
 #include "settings.h"
 #include "window-private.h"
 

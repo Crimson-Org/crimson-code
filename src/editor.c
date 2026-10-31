@@ -2,7 +2,7 @@
 
 #include <adwaita.h>
 
-#include "../lang/en.h"
+#include "lang/en.h"
 #include "comment-markers.h"
 #include "editor-colours.h"
 #include "editor-completion.h"

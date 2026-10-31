@@ -1,6 +1,6 @@
 #include <string.h>
 
-#include "../lang/en.h"
+#include "lang/en.h"
 #include "command-palette.h"
 #include "settings.h"
 #include "sidebar.h"

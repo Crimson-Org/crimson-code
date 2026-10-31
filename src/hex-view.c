@@ -3,7 +3,7 @@
 #include <adwaita.h>
 #include <gtksourceview/gtksource.h>
 
-#include "../lang/en.h"
+#include "lang/en.h"
 #include "hex-view.h"
 
 #define BYTES_PER_ROW 16

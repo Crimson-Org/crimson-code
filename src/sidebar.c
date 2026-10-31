@@ -1,4 +1,4 @@
-#include "../lang/en.h"
+#include "lang/en.h"
 #include "settings.h"
 #include "sidebar.h"
 

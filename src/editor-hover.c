@@ -2,7 +2,7 @@
 
 #include <gtksourceview/gtksource.h>
 
-#include "../lang/en.h"
+#include "lang/en.h"
 #include "editor-hover.h"
 #include "editor.h"
 #include "markdown.h"

@@ -2,7 +2,7 @@
 
 #include <gtksourceview/gtksource.h>
 
-#include "../lang/en.h"
+#include "lang/en.h"
 #include "editor-completion.h"
 #include "editor.h"
 #include "settings.h"

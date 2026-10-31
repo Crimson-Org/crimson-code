@@ -1,7 +1,7 @@
 #include <adwaita.h>
 #include <gtksourceview/gtksource.h>
 
-#include "../lang/en.h"
+#include "lang/en.h"
 #include "application.h"
 #include "common/startup.h"
 #include "editor-colours.h"

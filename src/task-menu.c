@@ -1,4 +1,4 @@
-#include "../lang/en.h"
+#include "lang/en.h"
 #include "task-menu.h"
 #include "build/tasks.h"
 

@@ -1,4 +1,4 @@
-#include "../lang/en.h"
+#include "lang/en.h"
 #include "problems-panel.h"
 
 #define ROW_SPACING 10

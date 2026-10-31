@@ -1,6 +1,6 @@
 #include <string.h>
 
-#include "../lang/en.h"
+#include "lang/en.h"
 #include "command-palette.h"
 #include "commands.h"
 #include "editor-completion.h"

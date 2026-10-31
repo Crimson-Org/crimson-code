@@ -3,7 +3,7 @@
 
 #include <gio/gio.h>
 
-#include "../lang/en.h"
+#include "lang/en.h"
 #include "build/json.h"
 #include "lsp.h"
 

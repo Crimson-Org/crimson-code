@@ -1,4 +1,4 @@
-#include "../lang/en.h"
+#include "lang/en.h"
 #include "commands.h"
 #include "settings-dialog.h"
 #include "settings.h"

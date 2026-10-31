@@ -1,6 +1,6 @@
 #include <adwaita.h>
 
-#include "../lang/en.h"
+#include "lang/en.h"
 #include "terminal-tabs.h"
 #include "terminal.h"
 

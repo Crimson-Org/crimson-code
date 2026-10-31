@@ -3,7 +3,7 @@
 #include <adwaita.h>
 #include <gtksourceview/gtksource.h>
 
-#include "../lang/en.h"
+#include "lang/en.h"
 #include "common/themes.h"
 #include "settings-dialog.h"
 #include "settings.h"
