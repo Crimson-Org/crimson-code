@@ -23,6 +23,10 @@ Starts blazingly fast!</p>
   <a href="https://github.com/Crimson-Org/crimson-code/releases/latest"><b>Download Here!</b></a>
 </p>
 
+<p align="center">
+  <img src="./demo1.png" alt="Crimson Code with a C project open">
+</p>
+
 ## Why
 
 Large editors are slow and crowded, and small ones lack language servers, a terminal and tasks.\
