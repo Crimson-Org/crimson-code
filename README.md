@@ -28,7 +28,7 @@ Starts blazingly fast!</p>
 Large editors are slow and crowded, and small ones lack language servers, a terminal and tasks.\
 Crimson Code is fast and has all three.
 
-## Features
+## About
 
 ### A project in a window
 
