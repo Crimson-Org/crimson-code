@@ -74,8 +74,8 @@ Settings (Ctrl+,) holds every option.
 You need a [C compiler](https://gcc.gnu.org/), [make](https://www.gnu.org/software/make/), [pkg-config](https://www.freedesktop.org/wiki/Software/pkg-config/) and the development files for [GTK4](https://gtk.org) 4.14, [libadwaita](https://gnome.pages.gitlab.gnome.org/libadwaita/) 1.6 and [GtkSourceView](https://gitlab.gnome.org/GNOME/gtksourceview) 5.16 or newer.\
 On [openSUSE](https://www.opensuse.org/) these come from `sudo zypper install gcc make pkg-config gtk4-devel libadwaita-devel gtksourceview5-devel`.
 
-Clone it with `git clone --recurse-submodules` so the shared Crimson Core code comes along.\
-`sh .crimson-build/install.sh` installs it and `sh .crimson-build/uninstall.sh` removes it.\
-`sh .crimson-build/run.sh` builds and starts it and `sh .crimson-build/archive.sh` writes a tar.gz to `dist/`.\
-`sh .crimson-build/appimage.sh` writes an [AppImage](https://appimage.org/) to `dist/` on [Arch Linux](https://archlinux.org/).\
-Those scripts are generated from the tasks in `.crimson-build/tasks.json` by [Crimson Build](https://github.com/Crimson-Org/crimson-build), so they work on any system with a shell.
+Steps:
+ 1. Clone using `git clone --recurse-submodules https://github.com/Crimson-Org/crimson-code`
+ 2. Run `sh .crimson-build/install.sh`
+
+`sh .crimson-build/uninstall.sh` removes it again.
