@@ -1,7 +1,15 @@
+#include <string.h>
+
 #include "lang/en.h"
 #include "problems-panel.h"
 
 #define ROW_SPACING 10
+#define MESSAGE_LINES_SPACING 2
+/* The source and place columns keep these widths in characters, so most rows line up without measuring every row */
+#define SOURCE_COLUMN_CHARACTERS 6
+#define PLACE_COLUMN_CHARACTERS 18
+/* Folders before a file name in a message, such as /home/me/project/src/ before main.c */
+#define FOLDERS_PATTERN "(?:/[^\\s/:]+)+/(?=[^\\s/:]+)"
 
 /* The list and where chosen problems go */
 typedef struct {
@@ -49,26 +57,78 @@ static GtkWidget *create_label(const char *text, gboolean is_dim) {
 }
 
 
-/* Long messages wrap rather than being cut off, since the whole message is the point of the panel */
-static GtkWidget *create_row(Editor *editor, const Diagnostic *problem) {
+static GtkWidget *create_wrapping_label(const char *text, gboolean is_dim) {
+	GtkWidget *label = create_label(text, is_dim);
+	gtk_label_set_wrap(GTK_LABEL(label), TRUE);
+	gtk_label_set_wrap_mode(GTK_LABEL(label), PANGO_WRAP_WORD_CHAR);
+	return label;
+}
+
+
+/* A long path in a note says less than its file name, so the note shows the name and the row keeps the whole message
+ * for its tooltip */
+static char *shorten_paths(const char *text) {
+	static GRegex *folders;
+	if (!folders)
+		folders = g_regex_new(FOLDERS_PATTERN, G_REGEX_OPTIMIZE, 0, NULL);
+	return g_regex_replace_literal(folders, text, -1, 0, "", 0, NULL);
+}
+
+
+/* A message's first line is the problem, and any further lines, such as where a note points, sit below it dimmed
+ * without the blank lines between them, and a line ending in a colon runs on into the next */
+static GtkWidget *create_message(const char *text) {
+	g_auto(GStrv) lines = g_strsplit(text, "\n", -1);
+	g_autoptr(GString) details = g_string_new(NULL);
+	for (guint index = 1; lines[index]; index++) {
+		g_strstrip(lines[index]);
+		g_autofree char *line = shorten_paths(lines[index]);
+		if (!*line)
+			continue;
+		gboolean runs_on = details->len && details->str[details->len - 1] == ':';
+		g_string_append_printf(details, "%s%s", runs_on ? " " : details->len ? "\n" : "", line);
+	}
+	GtkWidget *message = gtk_box_new(GTK_ORIENTATION_VERTICAL, MESSAGE_LINES_SPACING);
+	gtk_widget_set_hexpand(message, TRUE);
+	gtk_box_append(GTK_BOX(message), create_wrapping_label(lines[0] ? lines[0] : "", FALSE));
+	if (details->len) {
+		GtkWidget *detail = create_wrapping_label(details->str, TRUE);
+		gtk_widget_add_css_class(detail, "problem-detail");
+		gtk_box_append(GTK_BOX(message), detail);
+	}
+	return message;
+}
+
+
+static GtkWidget *create_column(const char *text, int characters) {
+	GtkWidget *label = create_label(text, TRUE);
+	gtk_label_set_width_chars(GTK_LABEL(label), characters);
+	return label;
+}
+
+
+/* Long messages wrap rather than being cut off, since the whole message is the point of the panel, and the source
+ * and place line up in columns of their own */
+static GtkWidget *create_row(Editor *editor, const Diagnostic *problem, gboolean shows_source) {
 	gboolean is_known = problem->severity < G_N_ELEMENTS(SEVERITY_ICONS) && SEVERITY_ICONS[problem->severity];
 	DiagnosticSeverity severity = is_known ? problem->severity : DIAGNOSTIC_ERROR;
 	GtkWidget *image = gtk_image_new_from_icon_name(SEVERITY_ICONS[severity]);
 	gtk_widget_add_css_class(image, SEVERITY_STYLES[severity]);
 	gtk_widget_set_valign(image, GTK_ALIGN_START);
-	GtkWidget *message = create_label(problem->message, FALSE);
-	gtk_label_set_wrap(GTK_LABEL(message), TRUE);
-	gtk_label_set_wrap_mode(GTK_LABEL(message), PANGO_WRAP_WORD_CHAR);
-	gtk_widget_set_hexpand(message, TRUE);
 	g_autofree char *title = get_editor_title(editor);
 	g_autofree char *place = g_strdup_printf(TEXT_PROBLEM_PLACE, title, problem->start_line + 1,
 		problem->start_column + 1);
+	GtkWidget *place_label = create_column(place, PLACE_COLUMN_CHARACTERS);
+	gtk_widget_add_css_class(place_label, "problem-place");
 	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, ROW_SPACING);
 	gtk_box_append(GTK_BOX(box), image);
-	gtk_box_append(GTK_BOX(box), message);
-	if (problem->source)
-		gtk_box_append(GTK_BOX(box), create_label(problem->source, TRUE));
-	gtk_box_append(GTK_BOX(box), create_label(place, TRUE));
+	gtk_box_append(GTK_BOX(box), create_message(problem->message));
+	g_autofree char *shown = shorten_paths(problem->message);
+	if (strcmp(shown, problem->message) != 0)
+		gtk_widget_set_tooltip_text(box, problem->message);
+	if (shows_source)
+		gtk_box_append(GTK_BOX(box), create_column(problem->source ? problem->source : "", SOURCE_COLUMN_CHARACTERS));
+	gtk_box_append(GTK_BOX(box), place_label);
 	GtkWidget *row = gtk_list_box_row_new();
 	gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), box);
 	ProblemSpot *spot = g_new0(ProblemSpot, 1);
@@ -126,8 +186,28 @@ GtkWidget *create_problems_panel(ProblemChosenFunction on_chosen, gpointer data)
 	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
 	gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), panel->list);
 	gtk_widget_add_css_class(scroller, "problems-panel");
+	/* A row cut by the panel's edge gets libadwaita's shade, so the cut reads as more to scroll */
+	gtk_widget_add_css_class(scroller, "undershoot-top");
+	gtk_widget_add_css_class(scroller, "undershoot-bottom");
 	g_object_set_data_full(G_OBJECT(scroller), "problems-panel", panel, free_panel);
 	return scroller;
+}
+
+
+/* One source for every problem says nothing on each row, so its column only shows when the sources differ */
+static gboolean has_one_source(GPtrArray *editors) {
+	const Diagnostic *first = NULL;
+	for (guint index = 0; index < editors->len; index++) {
+		GPtrArray *problems = get_editor_problems(g_ptr_array_index(editors, index));
+		for (guint problem = 0; problem < problems->len; problem++) {
+			const Diagnostic *diagnostic = g_ptr_array_index(problems, problem);
+			if (!first)
+				first = diagnostic;
+			else if (g_strcmp0(first->source, diagnostic->source) != 0)
+				return FALSE;
+		}
+	}
+	return TRUE;
 }
 
 
@@ -137,6 +217,7 @@ void set_problems_panel_editors(GtkWidget *panel_widget, GPtrArray *editors) {
 	GtkListBoxRow *row;
 	while ((row = gtk_list_box_get_row_at_index(GTK_LIST_BOX(panel->list), 0)))
 		gtk_list_box_remove(GTK_LIST_BOX(panel->list), GTK_WIDGET(row));
+	gboolean shows_source = !has_one_source(editors);
 	for (guint index = 0; index < editors->len; index++) {
 		Editor *editor = g_ptr_array_index(editors, index);
 		gboolean is_listed = FALSE;
@@ -146,7 +227,8 @@ void set_problems_panel_editors(GtkWidget *panel_widget, GPtrArray *editors) {
 		if (is_listed || !get_editor_file(editor))
 			continue;
 		for (guint problem = 0; problem < problems->len; problem++)
-			gtk_list_box_append(GTK_LIST_BOX(panel->list), create_row(editor, g_ptr_array_index(problems, problem)));
+			gtk_list_box_append(GTK_LIST_BOX(panel->list), create_row(editor, g_ptr_array_index(problems, problem),
+				shows_source));
 	}
 }
 

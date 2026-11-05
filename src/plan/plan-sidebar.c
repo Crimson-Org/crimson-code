@@ -7,6 +7,7 @@
 #include "plan-scan.h"
 #include "plan-sidebar.h"
 #include "app/settings.h"
+#include "window/sidebar.h"
 #include "common/widgets/spacing.h"
 
 #define NEW_TASK_ENTRY_WIDTH 240
@@ -725,27 +726,17 @@ static gboolean on_key_pressed(GtkEventControllerKey *keys, guint key, guint cod
 static GtkWidget *create_header_button(const char *icon, const char *tooltip, GCallback on_clicked,
 	PlanSidebar *plan) {
 	GtkWidget *button = gtk_button_new_from_icon_name(icon);
-	gtk_widget_add_css_class(button, "flat");
 	gtk_widget_set_tooltip_text(button, tooltip);
 	g_signal_connect(button, "clicked", on_clicked, plan);
 	return button;
 }
 
 
-static GtkWidget *create_header(PlanSidebar *plan) {
-	GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_TIGHT);
-	gtk_widget_add_css_class(header, "panel-header");
-	GtkWidget *title = gtk_label_new(TEXT_PLAN);
-	gtk_widget_add_css_class(title, "heading");
-	gtk_label_set_xalign(GTK_LABEL(title), 0);
-	gtk_widget_set_hexpand(title, TRUE);
-	gtk_widget_set_margin_start(title, SPACING_SMALL);
-	gtk_box_append(GTK_BOX(header), title);
-	gtk_box_append(GTK_BOX(header), create_header_button("list-add-symbolic", TEXT_PLAN_NEW_TASK,
-		G_CALLBACK(add_from_header), plan));
-	gtk_box_append(GTK_BOX(header), create_header_button("view-refresh-symbolic", TEXT_PLAN_REFRESH,
+static void add_header_buttons(AdwHeaderBar *header, PlanSidebar *plan) {
+	adw_header_bar_pack_end(header, create_header_button("view-refresh-symbolic", TEXT_PLAN_REFRESH,
 		G_CALLBACK(refresh_from_header), plan));
-	return header;
+	adw_header_bar_pack_end(header, create_header_button("list-add-symbolic", TEXT_PLAN_NEW_TASK,
+		G_CALLBACK(add_from_header), plan));
 }
 
 
@@ -832,10 +823,9 @@ GtkWidget *create_plan_sidebar(const PlanEvents *events) {
 	gtk_stack_add_named(GTK_STACK(plan->pages), create_list(plan), "list");
 	gtk_stack_add_named(GTK_STACK(plan->pages), create_empty_page(), "empty");
 	gtk_widget_set_vexpand(plan->pages, TRUE);
-	plan->root = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-	gtk_widget_add_css_class(plan->root, "project-tree");
-	gtk_box_append(GTK_BOX(plan->root), create_header(plan));
-	gtk_box_append(GTK_BOX(plan->root), plan->pages);
+	AdwHeaderBar *header = NULL;
+	plan->root = create_sidebar_page(TEXT_PLAN, plan->pages, &header);
+	add_header_buttons(header, plan);
 	install_actions(plan);
 	g_signal_connect(plan->root, "map", G_CALLBACK(on_mapped), plan);
 	watch_settings(on_setting_changed, plan);

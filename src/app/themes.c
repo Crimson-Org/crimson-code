@@ -134,9 +134,11 @@ static void open_theme_folder(AdwButtonRow *row, AdwPreferencesDialog *dialog) {
 }
 
 
-static GtkWidget *create_button_row(const char *title, GCallback callback, AdwPreferencesDialog *dialog) {
+static GtkWidget *create_button_row(const char *title, const char *icon, GCallback callback,
+	AdwPreferencesDialog *dialog) {
 	GtkWidget *row = adw_button_row_new();
 	adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), title);
+	adw_button_row_set_start_icon_name(ADW_BUTTON_ROW(row), icon);
 	g_signal_connect(row, "activated", callback, dialog);
 	return row;
 }
@@ -146,10 +148,10 @@ static void fill_page(AdwPreferencesDialog *dialog, AdwPreferencesPage *page) {
 	GtkWidget *group = adw_preferences_group_new();
 	adw_preferences_group_set_title(ADW_PREFERENCES_GROUP(group), TEXT_GROUP_THEMES);
 	adw_preferences_group_set_description(ADW_PREFERENCES_GROUP(group), TEXT_GROUP_THEMES_DETAIL);
-	adw_preferences_group_add(ADW_PREFERENCES_GROUP(group), create_button_row(TEXT_NEW_THEME,
+	adw_preferences_group_add(ADW_PREFERENCES_GROUP(group), create_button_row(TEXT_NEW_THEME, "list-add-symbolic",
 		G_CALLBACK(create_theme), dialog));
 	adw_preferences_group_add(ADW_PREFERENCES_GROUP(group), create_button_row(TEXT_OPEN_THEME_FOLDER,
-		G_CALLBACK(open_theme_folder), dialog));
+		"folder-open-symbolic", G_CALLBACK(open_theme_folder), dialog));
 	adw_preferences_page_add(page, ADW_PREFERENCES_GROUP(group));
 }
 

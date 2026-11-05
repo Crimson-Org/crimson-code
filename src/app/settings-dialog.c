@@ -2,7 +2,7 @@
 #include "settings-dialog.h"
 #include "settings.h"
 
-#define DIALOG_WIDTH 820
+#define DIALOG_WIDTH 960
 #define DIALOG_HEIGHT 720
 #define KEY_DATA "setting-key"
 

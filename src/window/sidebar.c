@@ -13,7 +13,8 @@
 
 /* The tree view, the one filter each folder shares and where chosen files go */
 typedef struct {
-	GtkWidget *view;
+	/* The header names the project the tree shows */
+	GtkWidget *view, *title;
 	GtkFilter *filter;
 	GFile *root;
 	GtkTreeListModel *tree;
@@ -253,6 +254,25 @@ void register_sidebar_settings(void) {
 }
 
 
+GtkWidget *create_sidebar_page(const char *title, GtkWidget *content, AdwHeaderBar **header) {
+	AdwHeaderBar *bar = ADW_HEADER_BAR(adw_header_bar_new());
+	adw_header_bar_set_show_end_title_buttons(bar, FALSE);
+	adw_header_bar_set_title_widget(bar, GTK_WIDGET(adw_window_title_new(title, "")));
+	GtkWidget *page = adw_toolbar_view_new();
+	adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(page), GTK_WIDGET(bar));
+	adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(page), content);
+	if (header)
+		*header = bar;
+	return page;
+}
+
+
+GIcon *get_file_name_icon(const char *name) {
+	g_autofree char *type = g_content_type_guess(name, NULL, 0, NULL);
+	return g_content_type_get_icon(type);
+}
+
+
 GtkWidget *create_sidebar(FileChosenFunction on_chosen, gpointer data) {
 	Sidebar *sidebar = g_new0(Sidebar, 1);
 	read_excluded_names(sidebar);
@@ -272,9 +292,11 @@ GtkWidget *create_sidebar(FileChosenFunction on_chosen, gpointer data) {
 	GtkWidget *scroller = gtk_scrolled_window_new();
 	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
 	gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), sidebar->view);
-	gtk_widget_add_css_class(scroller, "project-tree");
-	g_object_set_data_full(G_OBJECT(scroller), "sidebar", sidebar, free_sidebar);
-	return scroller;
+	AdwHeaderBar *header = NULL;
+	GtkWidget *page = create_sidebar_page("", scroller, &header);
+	sidebar->title = adw_header_bar_get_title_widget(header);
+	g_object_set_data_full(G_OBJECT(page), "sidebar", sidebar, free_sidebar);
+	return page;
 }
 
 
@@ -283,6 +305,8 @@ void set_sidebar_folder(GtkWidget *sidebar_widget, GFile *folder, const char *co
 	g_hash_table_remove_all(sidebar->folders_to_open);
 	forget_tree(sidebar);
 	g_set_object(&sidebar->root, folder);
+	g_autofree char *name = folder ? g_file_get_basename(folder) : NULL;
+	adw_window_title_set_title(ADW_WINDOW_TITLE(sidebar->title), name ? name : "");
 	if (!folder) {
 		gtk_list_view_set_model(GTK_LIST_VIEW(sidebar->view), NULL);
 		return;

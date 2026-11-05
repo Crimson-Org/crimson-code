@@ -6,7 +6,6 @@
 #define CONTEXT_KEY "find-context"
 #define BAR_KEY "find-bar"
 #define ENTRY_WIDTH_PIXELS 320
-#define COUNT_WIDTH_CHARACTERS 12
 
 struct FindBar {
 	GtkWidget *bar, *entry, *count, *replace_row, *replace_entry, *replace_toggle, *replace_problem;
@@ -170,6 +169,7 @@ static void replace(FindBar *bar, gboolean is_all) {
 	int count = bar->target->replace(bar->target_data, get_query(bar),
 		gtk_editable_get_text(GTK_EDITABLE(bar->replace_entry)), is_all, &message);
 	gtk_label_set_text(GTK_LABEL(bar->replace_problem), count < 0 ? message : "");
+	gtk_widget_set_visible(bar->replace_problem, count < 0);
 	if (count < 0)
 		return;
 	if (!is_all)
@@ -240,25 +240,38 @@ static GtkWidget *create_button(const char *icon, const char *label, const char 
 	FindBar *bar) {
 	GtkWidget *button = icon ? gtk_button_new_from_icon_name(icon) : gtk_button_new_with_label(label);
 	gtk_widget_set_tooltip_text(button, tooltip);
-	gtk_widget_add_css_class(button, "flat");
 	g_signal_connect_swapped(button, "clicked", callback, bar);
 	return button;
 }
 
 
+/* An entry and the buttons that act on it join into one control */
+static GtkWidget *create_linked(GtkWidget *entry) {
+	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+	gtk_widget_add_css_class(box, "linked");
+	gtk_box_append(GTK_BOX(box), entry);
+	return box;
+}
+
+
+/* Replacing slides open below the search, with the same width so both rows end on one edge */
 static GtkWidget *create_replace_row(FindBar *bar) {
 	bar->replace_entry = gtk_entry_new();
 	gtk_entry_set_placeholder_text(GTK_ENTRY(bar->replace_entry), TEXT_REPLACE_WITH);
-	gtk_widget_set_size_request(bar->replace_entry, ENTRY_WIDTH_PIXELS, -1);
+	gtk_widget_set_hexpand(bar->replace_entry, TRUE);
 	g_signal_connect_swapped(bar->replace_entry, "activate", G_CALLBACK(on_replace), bar);
-	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_SMALL);
-	gtk_widget_set_margin_top(box, SPACING_SMALL);
-	gtk_box_append(GTK_BOX(box), bar->replace_entry);
-	gtk_box_append(GTK_BOX(box), create_button(NULL, TEXT_REPLACE, TEXT_REPLACE, G_CALLBACK(on_replace), bar));
-	gtk_box_append(GTK_BOX(box), create_button(NULL, TEXT_REPLACE_ALL, TEXT_REPLACE_ALL, G_CALLBACK(on_replace_all),
-		bar));
+	GtkWidget *replace = create_linked(bar->replace_entry);
+	gtk_box_append(GTK_BOX(replace), create_button(NULL, TEXT_REPLACE, TEXT_REPLACE, G_CALLBACK(on_replace), bar));
+	gtk_box_append(GTK_BOX(replace), create_button(NULL, TEXT_REPLACE_ALL, TEXT_REPLACE_ALL,
+		G_CALLBACK(on_replace_all), bar));
 	bar->replace_problem = gtk_label_new(NULL);
+	gtk_label_set_xalign(GTK_LABEL(bar->replace_problem), 0);
+	gtk_label_set_wrap(GTK_LABEL(bar->replace_problem), TRUE);
 	gtk_widget_add_css_class(bar->replace_problem, "error");
+	gtk_widget_set_visible(bar->replace_problem, FALSE);
+	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, SPACING_SMALL);
+	gtk_widget_set_margin_top(box, SPACING_SMALL);
+	gtk_box_append(GTK_BOX(box), replace);
 	gtk_box_append(GTK_BOX(box), bar->replace_problem);
 	bar->replace_row = gtk_revealer_new();
 	gtk_revealer_set_child(GTK_REVEALER(bar->replace_row), box);
@@ -266,36 +279,55 @@ static GtkWidget *create_replace_row(FindBar *bar) {
 }
 
 
+/* The count of matches sits inside the search field at its end, where the text leaves room for it */
+static GtkWidget *create_search_field(FindBar *bar) {
+	bar->entry = gtk_search_entry_new();
+	g_object_set_data(G_OBJECT(bar->entry), BAR_KEY, bar);
+	gtk_widget_set_size_request(bar->entry, ENTRY_WIDTH_PIXELS, -1);
+	gtk_widget_set_hexpand(bar->entry, TRUE);
+	gtk_widget_add_css_class(bar->entry, "find-entry");
+	bar->count = gtk_label_new("");
+	gtk_widget_add_css_class(bar->count, "dim-label");
+	gtk_widget_add_css_class(bar->count, "find-count");
+	gtk_widget_set_halign(bar->count, GTK_ALIGN_END);
+	gtk_widget_set_can_target(bar->count, FALSE);
+	GtkWidget *field = gtk_overlay_new();
+	gtk_overlay_set_child(GTK_OVERLAY(field), bar->entry);
+	gtk_overlay_add_overlay(GTK_OVERLAY(field), bar->count);
+	GtkWidget *search = create_linked(field);
+	gtk_box_append(GTK_BOX(search), create_button("go-up-symbolic", NULL, TEXT_FIND_PREVIOUS,
+		G_CALLBACK(on_previous), bar));
+	gtk_box_append(GTK_BOX(search), create_button("go-down-symbolic", NULL, TEXT_FIND_NEXT, G_CALLBACK(on_next),
+		bar));
+	return search;
+}
+
+
 FindBar *create_find_bar(void) {
 	FindBar *bar = g_new0(FindBar, 1);
 	bar->settings = gtk_source_search_settings_new();
 	gtk_source_search_settings_set_wrap_around(bar->settings, TRUE);
-	bar->entry = gtk_search_entry_new();
-	g_object_set_data(G_OBJECT(bar->entry), BAR_KEY, bar);
-	gtk_widget_set_size_request(bar->entry, ENTRY_WIDTH_PIXELS, -1);
-	bar->count = gtk_label_new("");
-	gtk_widget_add_css_class(bar->count, "dim-label");
-	/* A steady width keeps the buttons in place while the count changes */
-	gtk_label_set_width_chars(GTK_LABEL(bar->count), COUNT_WIDTH_CHARACTERS);
-	gtk_label_set_xalign(GTK_LABEL(bar->count), 0);
 	bar->replace_toggle = create_button("pan-end-symbolic", NULL, TEXT_REPLACE, G_CALLBACK(on_replace_toggled), bar);
-	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_SMALL);
-	gtk_box_append(GTK_BOX(box), bar->replace_toggle);
-	gtk_box_append(GTK_BOX(box), bar->entry);
-	gtk_box_append(GTK_BOX(box), bar->count);
-	gtk_box_append(GTK_BOX(box), create_button("go-up-symbolic", NULL, TEXT_FIND_PREVIOUS, G_CALLBACK(on_previous),
-		bar));
-	gtk_box_append(GTK_BOX(box), create_button("go-down-symbolic", NULL, TEXT_FIND_NEXT, G_CALLBACK(on_next), bar));
-	/* The replace row lines up under the search entry, past the toggle */
-	GtkWidget *replace_row = create_replace_row(bar);
-	gtk_widget_set_margin_start(replace_row, SPACING_HUGE);
-	GtkWidget *rows = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-	gtk_box_append(GTK_BOX(rows), box);
-	gtk_box_append(GTK_BOX(rows), replace_row);
+	gtk_widget_add_css_class(bar->replace_toggle, "flat");
+	gtk_widget_set_valign(bar->replace_toggle, GTK_ALIGN_CENTER);
+	GtkWidget *close = create_button("window-close-symbolic", NULL, TEXT_FIND_CLOSE, G_CALLBACK(on_stop), bar);
+	gtk_widget_add_css_class(close, "flat");
+	gtk_widget_add_css_class(close, "circular");
+	gtk_widget_set_valign(close, GTK_ALIGN_CENTER);
+	/* The toggle, the two rows and the close button each keep a column of their own */
+	GtkWidget *rows = gtk_grid_new();
+	gtk_grid_set_column_spacing(GTK_GRID(rows), SPACING_SMALL);
+	gtk_grid_attach(GTK_GRID(rows), bar->replace_toggle, 0, 0, 1, 1);
+	gtk_grid_attach(GTK_GRID(rows), create_search_field(bar), 1, 0, 1, 1);
+	gtk_grid_attach(GTK_GRID(rows), close, 2, 0, 1, 1);
+	gtk_grid_attach(GTK_GRID(rows), create_replace_row(bar), 1, 1, 1, 1);
+	/* The bar floats as a card at the top right of the file it searches, sized to what it holds */
 	bar->bar = gtk_search_bar_new();
+	gtk_widget_add_css_class(bar->bar, "find-card");
+	gtk_widget_set_halign(bar->bar, GTK_ALIGN_END);
+	gtk_widget_set_valign(bar->bar, GTK_ALIGN_START);
 	gtk_search_bar_set_child(GTK_SEARCH_BAR(bar->bar), rows);
 	gtk_search_bar_connect_entry(GTK_SEARCH_BAR(bar->bar), GTK_EDITABLE(bar->entry));
-	gtk_search_bar_set_show_close_button(GTK_SEARCH_BAR(bar->bar), TRUE);
 	g_signal_connect(bar->entry, "search-changed", G_CALLBACK(on_search_changed), bar);
 	g_signal_connect_swapped(bar->entry, "activate", G_CALLBACK(on_next), bar);
 	g_signal_connect_swapped(bar->entry, "next-match", G_CALLBACK(on_next), bar);

@@ -2,7 +2,7 @@
 
 #include <gtksourceview/gtksource.h>
 
-/* The search strip above the editors, which searches whichever file is in front */
+/* The search card over the file in front, which searches whichever file that is */
 typedef struct FindBar FindBar;
 
 /* Something other than a text view that the bar can search, such as the hex view */

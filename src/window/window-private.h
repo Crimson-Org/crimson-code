@@ -27,9 +27,9 @@ struct Window {
 	/* The sidebar stack shows the project files or the plan */
 	GtkWidget *sidebar_stack, *plan, *plan_button;
 	GtkWidget *window, *toasts, *title, *sidebar, *sidebar_paned, *terminal_paned, *terminals, *task_button;
-	GtkWidget *editor_stack, *toolbar, *pane_area;
+	GtkWidget *editor_stack, *toolbar, *header, *pane_area;
 	/* The bottom panel shows the terminal or the problems list, one at a time */
-	GtkWidget *bottom_stack, *problems_panel, *problems_button, *new_terminal_button;
+	GtkWidget *bottom_stack, *problems_panel, *problems_button, *new_terminal_button, *terminal_tab_bar;
 	/* Files whose last view closed, newest last, for reopening them */
 	GPtrArray *closed_files;
 	PanelSlide *sidebar_slide, *bottom_slide;
@@ -41,6 +41,8 @@ struct Window {
 	FindBar *find_bar;
 	GtkWidget *mode_label, *command_label, *errors_label, *warnings_label, *position_label;
 	GtkWidget *language_label, *server_button, *sidebar_button, *selection_label, *mode_switch;
+	/* The language server menu and its actions, under a heading naming the server */
+	GMenu *server_menu, *server_actions;
 	/* Set while the mode switch follows the editor, so that change is not taken as the person's choice */
 	gboolean is_updating_mode;
 	/* Set while requested paths wait for the first frame, so the empty page stays blank */

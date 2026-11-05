@@ -203,14 +203,18 @@ static void fill_page(AdwPreferencesDialog *dialog, AdwPreferencesPage *preferen
 		g_signal_connect(page->fields[field], "apply", G_CALLBACK(on_marker_applied), page);
 		adw_preferences_group_add(group, page->fields[field]);
 	}
+	/* Resetting sits on a card of its own below the fields, as every reset row in the settings does */
 	GtkWidget *reset = adw_button_row_new();
-	adw_preferences_row_set_title(ADW_PREFERENCES_ROW(reset), TEXT_COMMENT_RESET);
+	adw_preferences_row_set_title(ADW_PREFERENCES_ROW(reset), TEXT_RESET_DEFAULT);
+	adw_button_row_set_start_icon_name(ADW_BUTTON_ROW(reset), "edit-undo-symbolic");
 	g_signal_connect(reset, "activated", G_CALLBACK(reset_markers), page);
-	adw_preferences_group_add(group, reset);
+	AdwPreferencesGroup *actions = ADW_PREFERENCES_GROUP(adw_preferences_group_new());
+	adw_preferences_group_add(actions, reset);
 	g_object_set_data_full(G_OBJECT(group), "marker-page", page, free_marker_page);
 	g_signal_connect(page->languages, "notify::selected", G_CALLBACK(on_language_chosen), page);
 	show_markers(page);
 	adw_preferences_page_add(preferences, group);
+	adw_preferences_page_add(preferences, actions);
 }
 
 

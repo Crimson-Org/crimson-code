@@ -3,6 +3,8 @@
 #include <gtk/gtk.h>
 
 void register_terminal_settings(void);
+/* The name of the shell new terminals start, such as bash, which names their tabs */
+char *get_terminal_shell_name(void);
 /* A terminal running the person's own shell, drawn by this program on the bundled libvterm */
 GtkWidget *create_terminal(void);
 /* The colour behind text that sets none, or NULL for the plain light or dark one. Terminals redraw when their

@@ -3,6 +3,7 @@
 #include "lang/en.h"
 #include "command-palette.h"
 #include "app/settings.h"
+#include "app/shortcut-keys.h"
 #include "sidebar.h"
 #include "window-private.h"
 
@@ -101,8 +102,12 @@ static void add_match(GArray *matches, int score, const char *text, gconstpointe
 /* ==================================== Rows ==================================== */
 
 
-static GtkWidget *add_row(Palette *palette, const char *title, const char *detail, float detail_alignment) {
+/* A row is an optional icon, the name, a dim detail and an optional widget at the end, such as the shortcut */
+static GtkWidget *add_row(Palette *palette, GIcon *icon, const char *title, const char *detail,
+	float detail_alignment, GtkWidget *suffix) {
 	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, ROW_SPACING);
+	if (icon)
+		gtk_box_append(GTK_BOX(box), gtk_image_new_from_gicon(icon));
 	GtkWidget *name = gtk_label_new(title);
 	gtk_label_set_xalign(GTK_LABEL(name), 0);
 	gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
@@ -113,6 +118,8 @@ static GtkWidget *add_row(Palette *palette, const char *title, const char *detai
 	gtk_widget_set_hexpand(more, TRUE);
 	gtk_widget_add_css_class(more, "dim-label");
 	gtk_box_append(GTK_BOX(box), more);
+	if (suffix)
+		gtk_box_append(GTK_BOX(box), suffix);
 	GtkWidget *row = gtk_list_box_row_new();
 	gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), box);
 	gtk_list_box_append(GTK_LIST_BOX(palette->list), row);
@@ -131,7 +138,8 @@ static char *get_file_name(Window *window, GFile *file) {
 static void add_file_row(Palette *palette, const char *name) {
 	const char *slash = strrchr(name, G_DIR_SEPARATOR);
 	g_autofree char *folder = slash ? g_strndup(name, slash - name) : g_strdup("");
-	GtkWidget *row = add_row(palette, slash ? slash + 1 : name, folder, 0);
+	g_autoptr(GIcon) icon = get_file_name_icon(name);
+	GtkWidget *row = add_row(palette, icon, slash ? slash + 1 : name, folder, 0, NULL);
 	char *path = g_path_is_absolute(name) ? g_strdup(name) : g_build_filename(palette->window->project, name, NULL);
 	g_object_set_data_full(G_OBJECT(row), "path", path, g_free);
 }
@@ -182,15 +190,6 @@ static gboolean can_run(Palette *palette, const Command *command) {
 }
 
 
-static char *get_shortcut_label(const Command *command) {
-	guint key = 0;
-	GdkModifierType modifiers = 0;
-	if (!command->shortcuts[0] || !gtk_accelerator_parse(command->shortcuts[0], &key, &modifiers))
-		return g_strdup("");
-	return gtk_accelerator_get_label(key, modifiers);
-}
-
-
 static void add_command_rows(Palette *palette, const char *query) {
 	GPtrArray *commands = list_commands();
 	g_autoptr(GArray) matches = g_array_new(FALSE, FALSE, sizeof(Match));
@@ -203,8 +202,7 @@ static void add_command_rows(Palette *palette, const char *query) {
 		g_array_sort(matches, compare_matches);
 	for (guint index = 0; index < matches->len; index++) {
 		const Command *command = g_array_index(matches, Match, index).item;
-		g_autofree char *shortcut = get_shortcut_label(command);
-		GtkWidget *row = add_row(palette, command->label, shortcut, 1);
+		GtkWidget *row = add_row(palette, NULL, command->label, "", 1, create_shortcut_keys(command->shortcuts[0]));
 		g_object_set_data(G_OBJECT(row), "command", (gpointer)command);
 	}
 }
@@ -247,7 +245,8 @@ static void add_command_line_rows(Palette *palette, const char *text) {
 		const char *shown = has_vim_name(command, typed) ? typed : name;
 		g_autofree char *line = g_strdup_printf("%s%s%s%s%s", COMMAND_LINE_PREFIX, shown, is_forced ? "!" : "",
 			*argument ? " " : "", argument);
-		GtkWidget *row = add_row(palette, line, command->label, 1);
+		GtkWidget *row = add_row(palette, NULL, line, command->label, 1, NULL);
+		gtk_widget_add_css_class(gtk_list_box_row_get_child(GTK_LIST_BOX_ROW(row)), "command-line-row");
 		g_object_set_data_full(G_OBJECT(row), "line", g_steal_pointer(&line), g_free);
 	}
 }

@@ -9,6 +9,8 @@
 #include "common/widgets/spacing.h"
 
 #define BYTES_PER_ROW 16
+/* A byte shows as two hex digits */
+#define DIGITS_PER_BYTE 2
 #define GROUP_SIZE 8
 #define PADDING_PIXELS 12
 /* Characters between the offset, hex and text columns */
@@ -625,8 +627,14 @@ static void on_goto_activated(GtkEntry *entry, HexView *view) {
 }
 
 
+/* The field opens under the byte at the cursor, where the jump starts from */
 static void show_goto(HexView *view) {
 	gtk_editable_set_text(GTK_EDITABLE(view->goto_entry), "");
+	double top = view->vadjustment ? gtk_adjustment_get_value(view->vadjustment) : 0;
+	double y = PADDING_PIXELS + (double)(view->cursor / BYTES_PER_ROW) * view->row_height - top;
+	GdkRectangle cell = {(int)get_hex_x(view, (int)(view->cursor % BYTES_PER_ROW)), (int)y,
+		(int)(DIGITS_PER_BYTE * view->char_width), (int)view->row_height};
+	gtk_popover_set_pointing_to(GTK_POPOVER(view->goto_popover), &cell);
 	gtk_popover_popup(GTK_POPOVER(view->goto_popover));
 	gtk_widget_grab_focus(view->goto_entry);
 }
@@ -829,6 +837,8 @@ static void hex_view_init(HexView *view) {
 	gtk_widget_add_controller(GTK_WIDGET(view), GTK_EVENT_CONTROLLER(drag));
 	view->goto_entry = gtk_entry_new();
 	gtk_entry_set_placeholder_text(GTK_ENTRY(view->goto_entry), TEXT_HEX_GOTO);
+	/* Wide enough for its whole hint, which shows the form an offset takes */
+	gtk_editable_set_width_chars(GTK_EDITABLE(view->goto_entry), g_utf8_strlen(TEXT_HEX_GOTO, -1));
 	g_signal_connect(view->goto_entry, "activate", G_CALLBACK(on_goto_activated), view);
 	view->goto_popover = gtk_popover_new();
 	gtk_popover_set_child(GTK_POPOVER(view->goto_popover), view->goto_entry);
@@ -1105,7 +1115,15 @@ GtkWidget *create_hex_view(HexDocument *document, GtkSourceBuffer *colours, HexC
 	GtkWidget *scroller = gtk_scrolled_window_new();
 	gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), GTK_WIDGET(view));
 	gtk_widget_set_hexpand(scroller, TRUE);
-	GtkWidget *inspector = create_inspector(page);
+	/* A narrow window cuts the rows at the inspector, and libadwaita's shade there shows they go on */
+	gtk_widget_add_css_class(scroller, "undershoot-start");
+	gtk_widget_add_css_class(scroller, "undershoot-end");
+	/* The inspector scrolls on its own, so a short editor area under an open panel never squeezes the view */
+	GtkWidget *inspector = gtk_scrolled_window_new();
+	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(inspector), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+	gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(inspector), TRUE);
+	gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(inspector), create_inspector(page));
+	gtk_widget_add_css_class(inspector, "hex-side");
 	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 	gtk_widget_add_css_class(box, "hex-page");
 	gtk_box_append(GTK_BOX(box), scroller);

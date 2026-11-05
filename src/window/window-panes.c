@@ -2,6 +2,7 @@
 
 #include "lang/en.h"
 #include "app/settings.h"
+#include "sidebar.h"
 #include "window-private.h"
 
 #define EDITOR_KEY "editor"
@@ -10,7 +11,8 @@
 /* One tile of the editor area with its own tabs, which splits into more tiles like Vim windows */
 struct Pane {
 	Window *window;
-	GtkWidget *root;
+	/* The overlay over the tabs' pages holds the find card while this pane is in front */
+	GtkWidget *root, *overlay;
 	AdwTabView *tabs;
 	AdwTabBar *bar;
 };
@@ -84,9 +86,8 @@ void update_window_tab(Window *window, Editor *editor) {
 	g_autofree char *name = get_editor_title(editor);
 	g_autofree char *title = is_editor_modified(editor) ? g_strconcat(MODIFIED_MARK, name, NULL) : g_strdup(name);
 	adw_tab_page_set_title(page, title);
-	/* The type is guessed from the name alone, so a renamed or untitled file gets its icon without reading it */
-	g_autofree char *type = g_content_type_guess(name, NULL, 0, NULL);
-	g_autoptr(GIcon) icon = g_content_type_get_icon(type);
+	/* A renamed or untitled file gets its icon without reading it */
+	g_autoptr(GIcon) icon = get_file_name_icon(name);
 	adw_tab_page_set_icon(page, icon);
 	GFile *file = get_editor_file(editor);
 	g_autofree char *path = file ? g_file_get_path(file) : NULL;
@@ -108,10 +109,25 @@ static void show_editor(Editor *editor) {
 /* ==================================== Focus ==================================== */
 
 
+/* The find card floats over the top of one pane's file, so it moves along to the pane that comes forward */
+static void place_find_bar(Window *window, Pane *pane) {
+	GtkWidget *bar = get_find_bar_widget(window->find_bar);
+	GtkWidget *parent = gtk_widget_get_parent(bar);
+	if (parent == pane->overlay)
+		return;
+	g_object_ref(bar);
+	if (parent)
+		gtk_overlay_remove_overlay(GTK_OVERLAY(parent), bar);
+	gtk_overlay_add_overlay(GTK_OVERLAY(pane->overlay), bar);
+	g_object_unref(bar);
+}
+
+
 static void focus_pane(Window *window, Pane *pane) {
 	if (window->current_pane == pane)
 		return;
 	window->current_pane = pane;
+	place_find_bar(window, pane);
 	for (guint index = 0; index < window->panes->len; index++) {
 		Pane *other = g_ptr_array_index(window->panes, index);
 		if (other == pane)
@@ -163,6 +179,10 @@ static void free_pane(Pane *pane) {
 static void remove_pane(Window *window, Pane *pane) {
 	if (window->panes->len <= 1)
 		return;
+	Pane *first = g_ptr_array_index(window->panes, 0);
+	Pane *next = first == pane ? g_ptr_array_index(window->panes, 1) : first;
+	/* The find card moves out first, since the pane's widgets go with it */
+	place_find_bar(window, next);
 	g_signal_handlers_disconnect_by_data(pane->tabs, pane);
 	GtkWidget *split = gtk_widget_get_parent(pane->root);
 	GtkWidget *start = gtk_paned_get_start_child(GTK_PANED(split));
@@ -175,7 +195,6 @@ static void remove_pane(Window *window, Pane *pane) {
 	if (window->current_pane == pane)
 		window->current_pane = NULL;
 	g_ptr_array_remove(window->panes, pane);
-	Pane *next = g_ptr_array_index(window->panes, 0);
 	focus_pane(window, next);
 	Editor *editor = get_current_editor(window);
 	if (editor)
@@ -223,10 +242,12 @@ static Pane *create_pane(Window *window) {
 	pane->bar = adw_tab_bar_new();
 	adw_tab_bar_set_view(pane->bar, pane->tabs);
 	adw_tab_bar_set_autohide(pane->bar, g_strcmp0(get_text_setting("tab-bar"), "always") != 0);
+	pane->overlay = gtk_overlay_new();
+	gtk_overlay_set_child(GTK_OVERLAY(pane->overlay), GTK_WIDGET(pane->tabs));
 	pane->root = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 	gtk_widget_add_css_class(pane->root, "pane");
 	gtk_box_append(GTK_BOX(pane->root), GTK_WIDGET(pane->bar));
-	gtk_box_append(GTK_BOX(pane->root), GTK_WIDGET(pane->tabs));
+	gtk_box_append(GTK_BOX(pane->root), pane->overlay);
 	g_signal_connect(pane->tabs, "close-page", G_CALLBACK(on_close_page), pane);
 	g_signal_connect(pane->tabs, "page-attached", G_CALLBACK(on_page_attached), pane);
 	g_signal_connect(pane->tabs, "notify::n-pages", G_CALLBACK(on_page_count_changed), pane);
@@ -247,6 +268,7 @@ GtkWidget *create_window_panes(Window *window) {
 	Pane *pane = create_pane(window);
 	gtk_box_append(GTK_BOX(window->pane_area), pane->root);
 	window->current_pane = pane;
+	place_find_bar(window, pane);
 	return window->pane_area;
 }
 

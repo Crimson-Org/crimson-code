@@ -2,9 +2,11 @@
 
 #include "lang/en.h"
 #include "app/commands.h"
+#include "common/app/identity.h"
 #include "common/app/startup.h"
 #include "editor/hex-view.h"
 #include "lsp/problems-panel.h"
+#include "app/menu-placement.h"
 #include "app/settings.h"
 #include "plan/plan-sidebar.h"
 #include "sidebar.h"
@@ -118,6 +120,17 @@ static void reveal(GtkWidget *revealer, gboolean is_shown) {
 }
 
 
+/* A menu section's heading cannot change, so the section is put back under the new name, only when it changed */
+static void name_server_menu(Window *window, const char *name) {
+	g_autofree char *current = NULL;
+	g_menu_model_get_item_attribute(G_MENU_MODEL(window->server_menu), 0, G_MENU_ATTRIBUTE_LABEL, "s", &current);
+	if (g_strcmp0(current, name) == 0)
+		return;
+	g_menu_remove(window->server_menu, 0);
+	g_menu_insert_section(window->server_menu, 0, name, G_MENU_MODEL(window->server_actions));
+}
+
+
 /* The language server shows as an icon naming it on hover, dimmed while it is stopped so it can be restarted */
 static void update_server_button(Window *window, Editor *editor) {
 	LspClient *client = get_editor_language_server(editor);
@@ -132,6 +145,15 @@ static void update_server_button(Window *window, Editor *editor) {
 	g_autofree char *tooltip = client ? g_strdup(get_lsp_client_name(client))
 		: g_strdup_printf(TEXT_SERVER_STOPPED, get_editor_language_name(editor));
 	gtk_widget_set_tooltip_text(window->server_button, tooltip);
+	name_server_menu(window, tooltip);
+}
+
+
+/* The bar slides away while it would stand empty, such as before any file is open */
+static void reveal_status_bar(Window *window, Editor *editor) {
+	gboolean has_content = editor || get_switch_setting("vim-mode");
+	adw_toolbar_view_set_reveal_bottom_bars(ADW_TOOLBAR_VIEW(window->toolbar), has_content
+		&& get_switch_setting("show-status-bar"));
 }
 
 
@@ -139,6 +161,7 @@ void update_window_status(Window *window) {
 	if (window->is_closed)
 		return;
 	Editor *editor = get_current_editor(window);
+	reveal_status_bar(window, editor);
 	/* A hex view shows its own offset, so lines and columns would only mislead */
 	gtk_widget_set_visible(window->position_label, editor && !is_editor_hex(editor) && !is_editor_loading(editor));
 	gtk_widget_set_visible(window->language_label, editor != NULL);
@@ -385,7 +408,8 @@ void update_window_empty_page(Window *window) {
 	gboolean is_shown = g_strcmp0(gtk_stack_get_visible_child_name(GTK_STACK(window->editor_stack)), "empty") == 0;
 	gboolean offers_opening = !has_project && !window->is_loading && is_shown;
 	AdwStatusPage *page = ADW_STATUS_PAGE(window->empty_page);
-	adw_status_page_set_title(page, offers_opening ? TEXT_EMPTY_TITLE : "");
+	/* The app's own icon greets a window with nothing open, while a project's blank page stays blank */
+	adw_status_page_set_icon_name(page, offers_opening ? get_application_identity()->id : NULL);
 	gtk_widget_set_visible(window->open_buttons, offers_opening);
 	gtk_widget_set_visible(window->show_files_button, has_project && !is_window_sidebar_visible(window));
 }
@@ -416,6 +440,8 @@ static void slide_sidebar(Window *window, gboolean is_visible) {
 
 void set_window_sidebar_visible(Window *window, gboolean is_visible) {
 	window->state.shows_sidebar = is_visible;
+	/* Window buttons on the left sit in the sidebar's own header while it shows */
+	adw_header_bar_set_show_start_title_buttons(ADW_HEADER_BAR(window->header), !is_visible);
 	slide_sidebar(window, is_visible);
 	update_window_empty_page(window);
 }
@@ -485,7 +511,7 @@ void close_window_project(Window *window) {
 
 static gboolean is_bottom_page_visible(Window *window, GtkWidget *page) {
 	return is_panel_slide_shown(window->bottom_slide)
-		&& gtk_stack_get_visible_child(GTK_STACK(window->bottom_stack)) == page;
+		&& adw_view_stack_get_visible_child(ADW_VIEW_STACK(window->bottom_stack)) == page;
 }
 
 
@@ -501,10 +527,18 @@ void hide_window_panel(Window *window) {
 }
 
 
+/* The header's terminal tabs and new terminal button belong to the terminal page only */
+static void show_terminal_controls(Window *window, GtkWidget *page) {
+	gboolean is_terminal = page == window->terminals;
+	gtk_widget_set_visible(window->new_terminal_button, is_terminal);
+	gtk_widget_set_visible(window->terminal_tab_bar, is_terminal);
+}
+
+
 /* Switching pages keeps the panel's height, so the terminal and the problems list share one place */
 static void show_bottom_page(Window *window, GtkWidget *page) {
-	gtk_stack_set_visible_child(GTK_STACK(window->bottom_stack), page);
-	gtk_widget_set_visible(window->new_terminal_button, page == window->terminals);
+	adw_view_stack_set_visible_child(ADW_VIEW_STACK(window->bottom_stack), page);
+	show_terminal_controls(window, page);
 	if (!is_panel_slide_shown(window->bottom_slide))
 		show_panel_slide(window->bottom_slide, MAX(window->state.terminal_height, BOTTOM_PANEL_MINIMUM_HEIGHT));
 	refresh_window_commands(window);
@@ -546,9 +580,9 @@ static void on_terminals_emptied(gpointer data) {
 
 
 /* The switcher names the page and moves between the terminal and the problems list */
-static void on_bottom_page_changed(GtkStack *stack, GParamSpec *property, Window *window) {
-	GtkWidget *page = gtk_stack_get_visible_child(stack);
-	gtk_widget_set_visible(window->new_terminal_button, page == window->terminals);
+static void on_bottom_page_changed(AdwViewStack *stack, GParamSpec *property, Window *window) {
+	GtkWidget *page = adw_view_stack_get_visible_child(stack);
+	show_terminal_controls(window, page);
 	if (page == window->problems_panel)
 		refresh_window_problems(window);
 	else if (page == window->terminals)
@@ -781,28 +815,34 @@ static GtkWidget *create_mode_switch(Window *window) {
 }
 
 
+/* A panel's button stays pressed in while its panel shows, so the title bar tells at a glance what is open */
+static GtkWidget *create_panel_toggle(const char *icon, const char *tooltip, const char *action) {
+	GtkWidget *button = gtk_toggle_button_new();
+	gtk_button_set_icon_name(GTK_BUTTON(button), icon);
+	gtk_actionable_set_action_name(GTK_ACTIONABLE(button), action);
+	gtk_widget_set_tooltip_text(button, tooltip);
+	return button;
+}
+
+
 static GtkWidget *create_header(Window *window) {
 	GtkWidget *header = adw_header_bar_new();
+	window->header = header;
 	gtk_widget_add_css_class(header, "title-bar");
 	window->title = GTK_WIDGET(adw_window_title_new(TEXT_APPLICATION_NAME, ""));
 	adw_header_bar_set_title_widget(ADW_HEADER_BAR(header), window->title);
-	window->sidebar_button = gtk_button_new_from_icon_name("sidebar-show-symbolic");
-	gtk_actionable_set_action_name(GTK_ACTIONABLE(window->sidebar_button), "win.toggle-sidebar");
-	gtk_widget_set_tooltip_text(window->sidebar_button, TEXT_TOGGLE_SIDEBAR);
+	window->sidebar_button = create_panel_toggle("folder-symbolic", TEXT_TOGGLE_SIDEBAR, "win.toggle-sidebar");
 	adw_header_bar_pack_start(ADW_HEADER_BAR(header), window->sidebar_button);
-	window->plan_button = gtk_button_new_from_icon_name("checkbox-checked-symbolic");
-	gtk_actionable_set_action_name(GTK_ACTIONABLE(window->plan_button), "win.toggle-plan");
-	gtk_widget_set_tooltip_text(window->plan_button, TEXT_TOGGLE_PLAN);
+	window->plan_button = create_panel_toggle("checkbox-checked-symbolic", TEXT_TOGGLE_PLAN, "win.toggle-plan");
 	adw_header_bar_pack_start(ADW_HEADER_BAR(header), window->plan_button);
 	GtkWidget *menu = gtk_menu_button_new();
 	gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(menu), "open-menu-symbolic");
 	gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(menu), create_window_menu());
+	place_popover_at_button_end(gtk_menu_button_get_popover(GTK_MENU_BUTTON(menu)));
 	gtk_widget_set_tooltip_text(menu, TEXT_MENU);
 	adw_header_bar_pack_end(ADW_HEADER_BAR(header), menu);
-	GtkWidget *terminal_button = gtk_button_new_from_icon_name("utilities-terminal-symbolic");
-	gtk_actionable_set_action_name(GTK_ACTIONABLE(terminal_button), "win.toggle-terminal");
-	gtk_widget_set_tooltip_text(terminal_button, TEXT_TOGGLE_TERMINAL);
-	adw_header_bar_pack_end(ADW_HEADER_BAR(header), terminal_button);
+	adw_header_bar_pack_end(ADW_HEADER_BAR(header), create_panel_toggle("utilities-terminal-symbolic",
+		TEXT_TOGGLE_TERMINAL, "win.toggle-terminal"));
 	window->mode_switch = create_mode_switch(window);
 	adw_header_bar_pack_start(ADW_HEADER_BAR(header), window->mode_switch);
 	window->task_button = create_task_button(choose_window_task, window);
@@ -851,10 +891,9 @@ static GtkWidget *create_empty_page(Window *window) {
 
 
 static GtkWidget *create_editor_area(Window *window) {
+	/* The panes hold the find card, over whichever of them is in front */
 	window->find_bar = create_find_bar();
-	GtkWidget *editors = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-	gtk_box_append(GTK_BOX(editors), get_find_bar_widget(window->find_bar));
-	gtk_box_append(GTK_BOX(editors), create_window_panes(window));
+	GtkWidget *editors = create_window_panes(window);
 	window->editor_stack = gtk_stack_new();
 	gtk_stack_set_transition_type(GTK_STACK(window->editor_stack), GTK_STACK_TRANSITION_TYPE_CROSSFADE);
 	gtk_stack_set_transition_duration(GTK_STACK(window->editor_stack), PAGE_FADE_MILLISECONDS);
@@ -876,8 +915,9 @@ static GtkWidget *create_counter(const char *icon, GtkWidget **label, const char
 }
 
 
+/* Labels and buttons carry the same side padding, so every part of the bar sits the same distance apart */
 static GtkWidget *create_status_bar(Window *window) {
-	GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_NORMAL);
+	GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_SMALL);
 	gtk_widget_add_css_class(bar, "status-bar");
 	/* The Vim mode name is also the quickest way back to Easy mode */
 	window->mode_label = gtk_label_new(NULL);
@@ -898,13 +938,23 @@ static GtkWidget *create_status_bar(Window *window) {
 	window->language_label = gtk_label_new("");
 	window->server_button = gtk_menu_button_new();
 	gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(window->server_button), "network-server-symbolic");
-	GMenu *server_menu = g_menu_new();
-	g_menu_append(server_menu, TEXT_RESTART_SERVERS, "win.restart-language-servers");
-	g_menu_append(server_menu, TEXT_STOP_SERVER, "win.stop-language-server");
-	g_menu_append(server_menu, TEXT_EDIT_SERVERS, "win.language-servers");
-	gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(window->server_button), G_MENU_MODEL(server_menu));
-	g_object_unref(server_menu);
+	/* The first section acts on the server named in its heading, filled in as the file in front changes, and the
+	 * second on every server */
+	window->server_menu = g_menu_new();
+	window->server_actions = g_menu_new();
+	g_menu_append(window->server_actions, TEXT_STOP_SERVER, "win.stop-language-server");
+	g_menu_append_section(window->server_menu, NULL, G_MENU_MODEL(window->server_actions));
+	g_autoptr(GMenu) every_server = g_menu_new();
+	g_menu_append(every_server, TEXT_RESTART_SERVERS, "win.restart-language-servers");
+	g_menu_append(every_server, TEXT_EDIT_SERVERS, "win.language-servers");
+	g_menu_append_section(window->server_menu, NULL, G_MENU_MODEL(every_server));
+	gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(window->server_button), G_MENU_MODEL(window->server_menu));
 	gtk_menu_button_set_direction(GTK_MENU_BUTTON(window->server_button), GTK_ARROW_UP);
+	/* The button sits in the window's corner, where an arrow would run into the menu's rounded corner */
+	GtkPopover *server_popover = gtk_menu_button_get_popover(GTK_MENU_BUTTON(window->server_button));
+	gtk_widget_set_halign(GTK_WIDGET(server_popover), GTK_ALIGN_END);
+	gtk_popover_set_has_arrow(server_popover, FALSE);
+	gtk_popover_set_offset(server_popover, 0, -SPACING_SMALL);
 	gtk_widget_add_css_class(window->server_button, "flat");
 	gtk_box_append(GTK_BOX(bar), mode_button);
 	gtk_box_append(GTK_BOX(bar), window->command_label);
@@ -943,23 +993,30 @@ static GtkWidget *create_bottom_panel(Window *window) {
 	GtkEventController *problem_keys = gtk_event_controller_key_new();
 	g_signal_connect(problem_keys, "key-pressed", G_CALLBACK(on_problems_key), window);
 	gtk_widget_add_controller(window->problems_panel, problem_keys);
-	window->bottom_stack = gtk_stack_new();
-	gtk_stack_set_transition_type(GTK_STACK(window->bottom_stack), GTK_STACK_TRANSITION_TYPE_CROSSFADE);
-	gtk_stack_set_transition_duration(GTK_STACK(window->bottom_stack), PAGE_FADE_MILLISECONDS);
+	window->bottom_stack = adw_view_stack_new();
+	adw_view_stack_set_enable_transitions(ADW_VIEW_STACK(window->bottom_stack), TRUE);
 	gtk_widget_set_vexpand(window->bottom_stack, TRUE);
-	gtk_stack_add_titled(GTK_STACK(window->bottom_stack), window->terminals, "terminal", TEXT_TERMINAL);
-	gtk_stack_add_titled(GTK_STACK(window->bottom_stack), window->problems_panel, "problems", TEXT_PROBLEMS);
+	adw_view_stack_add_titled(ADW_VIEW_STACK(window->bottom_stack), window->terminals, "terminal", TEXT_TERMINAL);
+	adw_view_stack_add_titled(ADW_VIEW_STACK(window->bottom_stack), window->problems_panel, "problems",
+		TEXT_PROBLEMS);
 	g_signal_connect(window->bottom_stack, "notify::visible-child", G_CALLBACK(on_bottom_page_changed), window);
-	GtkWidget *switcher = gtk_stack_switcher_new();
-	gtk_stack_switcher_set_stack(GTK_STACK_SWITCHER(switcher), GTK_STACK(window->bottom_stack));
-	gtk_widget_add_css_class(switcher, "panel-pages");
-	GtkWidget *spacer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-	gtk_widget_set_hexpand(spacer, TRUE);
+	/* The pages switch like the Text and Visual choice in the title bar, as flat toggles */
+	GtkWidget *switcher = adw_inline_view_switcher_new();
+	adw_inline_view_switcher_set_stack(ADW_INLINE_VIEW_SWITCHER(switcher), ADW_VIEW_STACK(window->bottom_stack));
+	gtk_widget_add_css_class(switcher, "flat");
+	gtk_widget_set_valign(switcher, GTK_ALIGN_CENTER);
+	/* Several terminals show their tabs beside the pages in this one header, instead of in a second row below */
+	GtkWidget *tabs_place = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+	gtk_widget_set_hexpand(tabs_place, TRUE);
+	window->terminal_tab_bar = get_terminal_tab_bar(window->terminals);
+	gtk_widget_set_hexpand(window->terminal_tab_bar, TRUE);
+	gtk_widget_set_valign(window->terminal_tab_bar, GTK_ALIGN_CENTER);
+	gtk_box_append(GTK_BOX(tabs_place), window->terminal_tab_bar);
 	window->new_terminal_button = create_panel_button("list-add-symbolic", TEXT_NEW_TERMINAL, "win.new-terminal");
 	GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_TIGHT);
 	gtk_widget_add_css_class(header, "panel-header");
 	gtk_box_append(GTK_BOX(header), switcher);
-	gtk_box_append(GTK_BOX(header), spacer);
+	gtk_box_append(GTK_BOX(header), tabs_place);
 	gtk_box_append(GTK_BOX(header), window->new_terminal_button);
 	gtk_box_append(GTK_BOX(header), create_panel_button("window-close-symbolic", TEXT_HIDE_PANEL, "win.hide-panel"));
 	GtkWidget *panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
@@ -980,26 +1037,29 @@ static GtkWidget *create_content(Window *window) {
 	window->sidebar = create_sidebar(on_file_chosen, window);
 	PlanEvents plan_events = {on_plan_spot_chosen, get_open_plan_text, change_open_plan_text, on_plan_failed, window};
 	window->plan = create_plan_sidebar(&plan_events);
+	/* The sidebar runs the full height of the window beside the title bar, as libadwaita sidebars do, and the
+	 * status bar belongs to the files and panels it describes */
 	window->sidebar_stack = gtk_stack_new();
+	gtk_widget_add_css_class(window->sidebar_stack, "sidebar-column");
 	gtk_stack_add_named(GTK_STACK(window->sidebar_stack), window->sidebar, "files");
 	gtk_stack_add_named(GTK_STACK(window->sidebar_stack), window->plan, "plan");
 	gtk_stack_set_visible_child_name(GTK_STACK(window->sidebar_stack), window->state.shows_plan ? "plan" : "files");
 	gtk_widget_set_visible(window->sidebar_stack, FALSE);
-	window->sidebar_paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
-	gtk_paned_set_start_child(GTK_PANED(window->sidebar_paned), window->sidebar_stack);
-	gtk_paned_set_end_child(GTK_PANED(window->sidebar_paned), window->terminal_paned);
-	gtk_paned_set_shrink_start_child(GTK_PANED(window->sidebar_paned), FALSE);
-	gtk_paned_set_resize_start_child(GTK_PANED(window->sidebar_paned), FALSE);
-	gtk_paned_set_position(GTK_PANED(window->sidebar_paned), window->state.sidebar_width);
-	window->sidebar_slide = create_panel_slide(GTK_PANED(window->sidebar_paned), FALSE);
 	GtkWidget *toolbar = adw_toolbar_view_new();
 	gtk_widget_add_css_class(toolbar, "title-bar");
 	window->toolbar = toolbar;
 	adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(toolbar), create_header(window));
-	adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(toolbar), window->sidebar_paned);
+	adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(toolbar), window->terminal_paned);
 	adw_toolbar_view_add_bottom_bar(ADW_TOOLBAR_VIEW(toolbar), create_status_bar(window));
+	window->sidebar_paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
+	gtk_paned_set_start_child(GTK_PANED(window->sidebar_paned), window->sidebar_stack);
+	gtk_paned_set_end_child(GTK_PANED(window->sidebar_paned), toolbar);
+	gtk_paned_set_shrink_start_child(GTK_PANED(window->sidebar_paned), FALSE);
+	gtk_paned_set_resize_start_child(GTK_PANED(window->sidebar_paned), FALSE);
+	gtk_paned_set_position(GTK_PANED(window->sidebar_paned), window->state.sidebar_width);
+	window->sidebar_slide = create_panel_slide(GTK_PANED(window->sidebar_paned), FALSE);
 	window->toasts = adw_toast_overlay_new();
-	adw_toast_overlay_set_child(ADW_TOAST_OVERLAY(window->toasts), toolbar);
+	adw_toast_overlay_set_child(ADW_TOAST_OVERLAY(window->toasts), window->sidebar_paned);
 	return window->toasts;
 }
 
@@ -1078,6 +1138,8 @@ static void free_window(gpointer data) {
 	g_ptr_array_unref(window->closed_files);
 	free_panel_slide(window->sidebar_slide);
 	free_panel_slide(window->bottom_slide);
+	g_object_unref(window->server_menu);
+	g_object_unref(window->server_actions);
 	clear_window_state(&window->state);
 	g_free(window->project);
 	g_free(window);
@@ -1095,7 +1157,7 @@ static void show_while_available(Window *window, GtkWidget *button, const char *
 static void apply_window_layout(const char *key, gpointer data) {
 	Window *window = data;
 	apply_window_pane_settings(window);
-	adw_toolbar_view_set_reveal_bottom_bars(ADW_TOOLBAR_VIEW(window->toolbar), get_switch_setting("show-status-bar"));
+	reveal_status_bar(window, get_current_editor(window));
 	if (!key || g_strcmp0(key, "vim-mode") == 0)
 		update_window_status(window);
 }

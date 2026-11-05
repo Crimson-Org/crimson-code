@@ -14,13 +14,15 @@
 #include "lang/en.h"
 #include "app/settings.h"
 #include "terminal.h"
+#include "common/widgets/spacing.h"
 
 #define READ_BUFFER_BYTES 65536
 #define WHEEL_LINES 3
 #define MINIMUM_COLUMNS 2
 #define MINIMUM_ROWS 1
 #define SAMPLE_TEXT "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-#define PADDING 6
+/* The text keeps the same inset from the panel edge as the problems list beside it */
+#define PADDING SPACING_NORMAL
 #define CONTINUATION_CELL ((uint32_t)-1)
 /* Bold text stays this much heavier than the chosen font weight */
 #define BOLD_WEIGHT_STEP 300
@@ -631,13 +633,26 @@ static void forget_ended_shell(GPid pid, int status, gpointer data) {
 
 
 /* Everything the child needs is prepared before forking, since only plain system calls are safe after */
-static void start_shell(Terminal *terminal) {
+/* The shell set in Settings, or the login shell, as the program and its arguments */
+static GStrv get_shell_arguments(void) {
 	const char *command = get_text_setting("terminal-shell");
 	if (!*command)
 		command = g_getenv("SHELL");
-	g_auto(GStrv) arguments = NULL;
+	GStrv arguments = NULL;
 	if (!command || !*command || !g_shell_parse_argv(command, NULL, &arguments, NULL))
 		arguments = g_strdupv((char *[]){"/bin/sh", NULL});
+	return arguments;
+}
+
+
+char *get_terminal_shell_name(void) {
+	g_auto(GStrv) arguments = get_shell_arguments();
+	return g_path_get_basename(arguments[0]);
+}
+
+
+static void start_shell(Terminal *terminal) {
+	g_auto(GStrv) arguments = get_shell_arguments();
 	g_autofree char *shell = g_path_is_absolute(arguments[0]) ? g_strdup(arguments[0])
 		: g_find_program_in_path(arguments[0]);
 	if (!shell) {

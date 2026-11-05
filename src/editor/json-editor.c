@@ -615,28 +615,34 @@ static void add_row_actions(RowParts *parts) {
 }
 
 
-/* The menu is built when first opened instead of for every row shown, since building one is slow */
-static void on_menu_needed(GtkMenuButton *button, gpointer data) {
-	RowParts *parts = data;
+static GMenuModel *get_row_menu(RowParts *parts) {
 	JsonEditor *editor = parts->editor;
 	guint position = gtk_list_item_get_position(parts->list_item);
 	gboolean is_container = position < editor->shown->len
 		&& is_container_value(get_tree_row(editor->shown, position)->value);
-	gtk_menu_button_set_menu_model(button, get_menu(is_container));
+	return get_menu(is_container);
 }
 
 
-/* A right click opens the same menu as the row's button, at the pointer */
+/* The menu is built when first opened instead of for every row shown, since building one is slow */
+static void on_menu_needed(GtkMenuButton *button, gpointer data) {
+	gtk_menu_button_set_menu_model(button, get_row_menu(data));
+}
+
+
+static void on_context_menu_closed(GtkPopover *popover, gpointer data) {
+	g_idle_add_once((GSourceOnceFunc)gtk_widget_unparent, popover);
+}
+
+
+/* A right click opens the row's menu at the pointer on a popover of its own, which goes once it closes, since the
+ * button's popover can only point at the button */
 static void on_secondary_click(GtkGestureClick *gesture, int presses, double x, double y, RowParts *parts) {
-	GtkWidget *menu_button = parts->menu_button;
-	on_menu_needed(GTK_MENU_BUTTON(menu_button), parts);
-	GtkPopover *popover = gtk_menu_button_get_popover(GTK_MENU_BUTTON(menu_button));
-	GtkWidget *row = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
-	graphene_point_t point;
-	if (!popover || !gtk_widget_compute_point(row, menu_button, &GRAPHENE_POINT_INIT((float)x, (float)y), &point))
-		return;
-	gtk_popover_set_pointing_to(popover, &(GdkRectangle){(int)point.x, (int)point.y, 1, 1});
-	gtk_menu_button_popup(GTK_MENU_BUTTON(menu_button));
+	GtkWidget *popover = gtk_popover_menu_new_from_model(get_row_menu(parts));
+	gtk_widget_set_parent(popover, parts->row);
+	gtk_popover_set_pointing_to(GTK_POPOVER(popover), &(GdkRectangle){(int)x, (int)y, 1, 1});
+	g_signal_connect(popover, "closed", G_CALLBACK(on_context_menu_closed), NULL);
+	gtk_popover_popup(GTK_POPOVER(popover));
 }
 
 

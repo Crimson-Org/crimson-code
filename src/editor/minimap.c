@@ -29,7 +29,8 @@ typedef struct {
 
 /* The view it pictures, the blocks read from its text and the picture drawn from them */
 typedef struct {
-	GtkWidget *area;
+	/* The revealer slides the drawing area aside while the whole file fits the view */
+	GtkWidget *revealer, *area;
 	GtkSourceView *view;
 	GtkSourceBuffer *buffer;
 	GtkAdjustment *adjustment;
@@ -45,6 +46,8 @@ typedef struct {
 	/* Where the drag began, as the view's scroll position */
 	double drag_start;
 	gboolean is_active;
+	/* Set once the map has shown or hidden for the first time, after which it slides */
+	gboolean is_placed;
 } Minimap;
 
 
@@ -268,6 +271,28 @@ static void on_view_scrolled(GtkAdjustment *adjustment, Minimap *map) {
 }
 
 
+/* A file that fits the view has nothing to scroll, so its map steps aside as a scroll bar would. The first choice is
+ * made without sliding, so a file opens with its map already in place */
+static void on_view_measured(GtkAdjustment *adjustment, Minimap *map) {
+	double page = gtk_adjustment_get_page_size(adjustment);
+	if (page <= 0)
+		return;
+	GtkTextIter end;
+	gtk_text_buffer_get_end_iter(GTK_TEXT_BUFFER(map->buffer), &end);
+	int top = 0, height = 0;
+	gtk_text_view_get_line_yrange(GTK_TEXT_VIEW(map->view), &end, &top, &height);
+	gboolean is_needed = top + height > page;
+	if (map->is_placed) {
+		gtk_revealer_set_reveal_child(GTK_REVEALER(map->revealer), is_needed);
+		return;
+	}
+	gtk_revealer_set_transition_type(GTK_REVEALER(map->revealer), GTK_REVEALER_TRANSITION_TYPE_NONE);
+	gtk_revealer_set_reveal_child(GTK_REVEALER(map->revealer), is_needed);
+	gtk_revealer_set_transition_type(GTK_REVEALER(map->revealer), GTK_REVEALER_TRANSITION_TYPE_SLIDE_LEFT);
+	map->is_placed = TRUE;
+}
+
+
 /* The map is as wide as the view's right margin, at the size's character width */
 static void update_width(Minimap *map) {
 	guint columns = gtk_source_view_get_right_margin_position(map->view);
@@ -377,10 +402,14 @@ GtkWidget *create_minimap(GtkSourceView *view) {
 	g_signal_connect(map->buffer, "notify::style-scheme", G_CALLBACK(on_scheme_changed), map);
 	g_signal_connect(map->adjustment, "value-changed", G_CALLBACK(on_view_scrolled), map);
 	g_signal_connect(map->adjustment, "changed", G_CALLBACK(on_view_scrolled), map);
+	g_signal_connect(map->adjustment, "changed", G_CALLBACK(on_view_measured), map);
 	g_signal_connect(map->view, "notify::right-margin-position", G_CALLBACK(on_margin_changed), map);
-	g_object_set_data_full(G_OBJECT(map->area), MINIMAP_KEY, map, free_minimap);
+	map->revealer = gtk_revealer_new();
+	gtk_revealer_set_transition_type(GTK_REVEALER(map->revealer), GTK_REVEALER_TRANSITION_TYPE_SLIDE_LEFT);
+	gtk_revealer_set_child(GTK_REVEALER(map->revealer), map->area);
+	g_object_set_data_full(G_OBJECT(map->revealer), MINIMAP_KEY, map, free_minimap);
 	update_width(map);
-	return map->area;
+	return map->revealer;
 }
 
 

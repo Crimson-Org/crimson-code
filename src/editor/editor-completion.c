@@ -11,6 +11,7 @@
 #define POPUP_KEY "completion-popup"
 #define TYPING_DELAY_MILLISECONDS 150
 #define POPUP_WIDTH 420
+#define POPUP_MAXIMUM_WIDTH 640
 #define POPUP_HEIGHT 300
 #define PAGE_ROWS 8
 /* The protocol's kind for plain text, used for words taken from the file */
@@ -232,6 +233,7 @@ static void set_up_row(GtkSignalListItemFactory *factory, GtkListItem *list_item
 	gtk_widget_set_hexpand(detail, TRUE);
 	gtk_widget_add_css_class(detail, "dim-label");
 	gtk_widget_add_css_class(kind, "dim-label");
+	gtk_widget_add_css_class(kind, "completion-kind");
 	gtk_widget_add_css_class(label, "code-text");
 	gtk_box_append(GTK_BOX(box), label);
 	gtk_box_append(GTK_BOX(box), detail);
@@ -299,10 +301,13 @@ static void create_popover(CompletionPopup *popup) {
 	GtkWidget *scroller = gtk_scrolled_window_new();
 	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
 	gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroller), popup->list);
-	/* A short list keeps the popup short, while a long one scrolls */
+	/* A short list keeps the popup short, while a long one scrolls, and long signatures widen it up to a limit
+	 * before they are cut */
 	gtk_widget_set_size_request(scroller, POPUP_WIDTH, -1);
 	gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(scroller), TRUE);
 	gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(scroller), POPUP_HEIGHT);
+	gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(scroller), TRUE);
+	gtk_scrolled_window_set_max_content_width(GTK_SCROLLED_WINDOW(scroller), POPUP_MAXIMUM_WIDTH);
 	/* A small heading names where the suggestions come from, the language server or the file's own words */
 	popup->source_label = gtk_label_new(NULL);
 	gtk_label_set_xalign(GTK_LABEL(popup->source_label), 0);
@@ -319,6 +324,8 @@ static void create_popover(CompletionPopup *popup) {
 	gtk_popover_set_has_arrow(GTK_POPOVER(popup->popover), FALSE);
 	gtk_popover_set_position(GTK_POPOVER(popup->popover), GTK_POS_BOTTOM);
 	gtk_widget_set_halign(popup->popover, GTK_ALIGN_START);
+	/* The list leaves the typed line the same small gap a hover card leaves its word */
+	gtk_popover_set_offset(GTK_POPOVER(popup->popover), 0, SPACING_TIGHT);
 	gtk_widget_set_parent(popup->popover, get_editor_widget(popup->editor));
 	/* Keys can arrive at the popup's own surface instead of the editor, so the list listens there too */
 	GtkEventController *keys = gtk_event_controller_key_new();
@@ -339,7 +346,11 @@ static void refilter(CompletionPopup *popup) {
 }
 
 
+/* Suggestions arrive a moment after typing, by which time a dialog may have taken the focus, and the list then
+ * stays closed rather than float above it */
 static void present_popup(CompletionPopup *popup) {
+	if (!gtk_widget_has_focus(GTK_WIDGET(popup->view)))
+		return;
 	GtkTextIter start, cursor;
 	get_word_start(popup, &start, &cursor);
 	GdkRectangle location;

@@ -21,7 +21,7 @@
 #define EDGE_PIXELS 12
 /* Room kept between the card and the editor's sides, and between the card and its word */
 #define CARD_MARGIN_PIXELS 6
-#define CARD_GAP_PIXELS 4
+#define CARD_GAP_PIXELS SPACING_TIGHT
 #define FENCE "```"
 
 /* Icons for each severity, matching the gutter */
@@ -59,7 +59,9 @@ static GtkWidget *create_problem_card(const Diagnostic *problem) {
 	gtk_widget_set_valign(icon, GTK_ALIGN_START);
 	const char *style = severity == DIAGNOSTIC_ERROR ? "error" : severity == DIAGNOSTIC_WARNING ? "warning" : "accent";
 	gtk_widget_add_css_class(icon, style);
+	/* The message takes the card's whole width, so it wraps as wide as the documentation below it */
 	GtkWidget *text = gtk_box_new(GTK_ORIENTATION_VERTICAL, SPACING_HAIRLINE);
+	gtk_widget_set_hexpand(text, TRUE);
 	g_autofree char *message = g_markup_escape_text(problem->message, -1);
 	gtk_box_append(GTK_BOX(text), create_text_label(message, NULL));
 	if (problem->source || problem->code) {

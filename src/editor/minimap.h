@@ -9,7 +9,8 @@ typedef enum {
 	MINIMAP_LARGE,
 } MinimapSize;
 
-/* A picture of the whole file beside the view, with lines squeezed together when the file is taller than the map */
+/* A picture of the whole file beside the view, with lines squeezed together when the file is taller than the map,
+ * which slides aside while the whole file fits the view */
 GtkWidget *create_minimap(GtkSourceView *view);
 void set_minimap_size(GtkWidget *minimap, MinimapSize size);
 /* Stops the minimap following the view, since the tab may keep the widgets a moment after the editor closes */

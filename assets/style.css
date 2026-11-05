@@ -1,6 +1,23 @@
-.project-tree {
+.sidebar-column {
 	background-color: var(--sidebar-bg-color);
 	color: var(--sidebar-fg-color);
+}
+
+/* File and plan lists sit closer than a settings list, so more of a project fits */
+.sidebar-column .navigation-sidebar > row {
+	min-height: 30px;
+	margin-bottom: 1px;
+}
+
+/* Sidebar lists stay a step quieter than the code, and the chosen row and the row under the pointer stand out */
+.sidebar-column .navigation-sidebar > row {
+	color: alpha(currentColor, 0.8);
+	transition: color 150ms ease-out;
+}
+
+.sidebar-column .navigation-sidebar > row:hover,
+.sidebar-column .navigation-sidebar > row:selected {
+	color: inherit;
 }
 
 .plan-row-menu {
@@ -39,14 +56,23 @@
 	font-weight: 600;
 }
 
+/* The status bar reads a step smaller than the rest, with figures of one width so the position never jitters */
 .status-bar {
-	padding: var(--spacing-hairline) var(--spacing-snug);
-	min-height: 32px;
+	padding: var(--spacing-hairline) var(--spacing-tight);
+	min-height: 28px;
+	font-size: 0.875em;
+	font-feature-settings: "tnum";
+}
+
+.status-bar > label,
+.status-bar > revealer > label {
+	padding: 0 var(--spacing-small);
+	opacity: 0.75;
 }
 
 .status-bar button {
-	padding: 0 var(--spacing-snug);
-	min-height: 28px;
+	padding: 0 var(--spacing-small);
+	min-height: 24px;
 }
 
 .status-bar label.mode {
@@ -61,28 +87,51 @@
 	color: var(--warning-color);
 }
 
-.minimap {
-	border-left: 1px solid alpha(currentColor, 0.08);
-}
-
+/* The split above already draws the line between the code and the panel */
 .bottom-panel {
-	border-top: 1px solid alpha(currentColor, 0.12);
 	background-color: var(--view-bg-color);
 }
 
 .panel-header {
+	padding: var(--spacing-tight) var(--spacing-small);
+	min-height: 32px;
+}
+
+/* The panel's pages start in line with the text below them, and its close button in line with the tab's above */
+.bottom-panel > .panel-header {
+	padding-left: var(--spacing-normal);
+	padding-right: var(--spacing-snug);
+}
+
+.panel-header > button {
+	min-height: 28px;
+	min-width: 28px;
+	padding: 0;
+}
+
+.panel-header > inline-view-switcher toggle {
+	font-weight: normal;
+	min-height: 26px;
+}
+
+/* A typed : command reads in the code font */
+.command-line-row > label:first-child {
+	font-family: monospace;
+}
+
+/* Rows with and without : names keep the height of a two line settings row, so the long list keeps its rhythm */
+.command-row {
+	min-height: 62px;
+}
+
+/* Shortcuts show as key caps, the same in the command palette and the settings */
+.shortcut-keys > .keycap {
+	min-width: 20px;
 	padding: var(--spacing-hairline) var(--spacing-small);
-}
-
-.panel-header button {
-	min-height: 24px;
-	min-width: 24px;
-	padding: var(--spacing-hairline);
-}
-
-.panel-pages button {
-	padding: var(--spacing-hairline) var(--spacing-compact);
-	font-size: 0.9em;
+	background-color: alpha(currentColor, 0.1);
+	box-shadow: inset 0 -2px alpha(black, 0.15);
+	border-radius: 6px;
+	font-size: 0.8em;
 }
 
 .problems-panel list {
@@ -104,19 +153,49 @@
 .problems-panel image.accent {
 	color: var(--accent-color);
 }
+
+.problem-detail {
+	font-size: 0.9em;
+}
+
+.problem-place {
+	font-feature-settings: "tnum";
+}
+
 .pane:not(.current) > tabbar {
 	opacity: 0.65;
 }
 
-/* Hover cards look like popups, though they lie on a layer inside the editor */
-.hover-frame {
+/* Hover cards and the find card look exactly like libadwaita's popups, though they lie on a layer inside the editor */
+.hover-frame,
+searchbar.find-card > revealer > box {
 	background-color: var(--popover-bg-color);
 	color: var(--popover-fg-color);
-	border-radius: 12px;
-	border: 1px solid alpha(currentColor, 0.08);
-	box-shadow: 0 2px 8px 1px rgba(0, 0, 0, 0.3);
-	padding: var(--spacing-small);
+	background-clip: padding-box;
+	border-radius: 15px;
+	border: 1px solid rgba(0, 0, 0, 0.14);
+	box-shadow: 0 1px 5px 1px rgba(0, 0, 0, 0.09), 0 2px 14px 3px rgba(0, 0, 0, 0.05);
+	padding: var(--spacing-snug);
+}
+
+.hover-frame {
 	animation: pop-in 120ms ease-out;
+}
+
+/* The search text stops short of the match count laid over the end of the field, beside its clear button */
+.find-entry > text {
+	margin-right: 84px;
+}
+
+.find-count {
+	margin-right: 34px;
+	font-size: 0.9em;
+	font-feature-settings: "tnum";
+}
+
+/* The card keeps room around it for its shadow, which the sliding reveal would otherwise cut off */
+searchbar.find-card > revealer > box {
+	margin: var(--spacing-snug) var(--spacing-roomy) var(--spacing-large);
 }
 
 .hover-card {
@@ -129,7 +208,7 @@
 }
 
 .task-menu {
-	padding: var(--spacing-hairline);
+	padding: var(--spacing-small);
 }
 
 .task-list {
@@ -145,9 +224,44 @@
 	background-color: alpha(currentColor, 0.08);
 }
 
+.task-name {
+	font-weight: 600;
+}
+
+/* The line between the tasks and editing them spans the menu like the main menu's lines */
+.task-menu > separator {
+	margin: var(--spacing-small) 0;
+}
+
+.task-list image {
+	opacity: 0.55;
+	transition: opacity 150ms ease-out;
+}
+
+.task-list row:hover image,
+.task-list row:focus-within image {
+	opacity: 1;
+}
+
+
+
+.task-detail {
+	font-size: 0.9em;
+}
+
 .completion-source {
 	font-size: 0.85em;
 	padding: var(--spacing-tight) var(--spacing-compact) var(--spacing-hairline);
+}
+
+/* The list lies on the popup itself, so only the chosen row's rounded mark stands out from it */
+.completion-list {
+	background: none;
+}
+
+/* The kind of each suggestion keeps clear of the detail before it */
+.completion-kind {
+	margin-left: var(--spacing-normal);
 }
 
 .completion-list row {
@@ -212,8 +326,11 @@ popover > contents {
 	min-width: 24px;
 }
 
+.hex-side {
+	border-left: 1px solid alpha(currentColor, 0.08);
+}
+
 .hex-inspector {
 	padding: var(--spacing-normal) var(--spacing-roomy);
 	min-width: 220px;
-	border-left: 1px solid alpha(currentColor, 0.08);
 }

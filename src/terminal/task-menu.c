@@ -1,5 +1,6 @@
 #include "lang/en.h"
 #include "task-menu.h"
+#include "app/menu-placement.h"
 #include "build/tasks.h"
 #include "common/widgets/spacing.h"
 
@@ -20,11 +21,14 @@ static GtkWidget *create_row(const char *icon, const char *title, const char *de
 	GtkWidget *label = gtk_label_new(title);
 	gtk_label_set_xalign(GTK_LABEL(label), 0);
 	gtk_box_append(GTK_BOX(text), label);
+	if (task_name)
+		gtk_widget_add_css_class(label, "task-name");
 	if (detail && *detail) {
 		GtkWidget *detail_label = gtk_label_new(detail);
 		gtk_label_set_xalign(GTK_LABEL(detail_label), 0);
 		gtk_label_set_wrap(GTK_LABEL(detail_label), TRUE);
 		gtk_widget_add_css_class(detail_label, "dim-label");
+		gtk_widget_add_css_class(detail_label, "task-detail");
 		gtk_box_append(GTK_BOX(text), detail_label);
 	}
 	GtkWidget *image = gtk_image_new_from_icon_name(icon);
@@ -99,13 +103,16 @@ GtkWidget *create_task_button(TaskChosenFunction on_chosen, gpointer data) {
 		g_signal_connect(lists[index], "row-activated", G_CALLBACK(on_row_activated), menu);
 	}
 	menu->separator = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
-	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, SPACING_TIGHT);
+	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 	gtk_widget_add_css_class(box, "task-menu");
 	gtk_widget_set_size_request(box, MENU_WIDTH, -1);
 	gtk_box_append(GTK_BOX(box), menu->list);
 	gtk_box_append(GTK_BOX(box), menu->separator);
 	gtk_box_append(GTK_BOX(box), menu->actions);
+	/* The list takes the main menu's insets, so its rows and line sit where the menu's do */
 	GtkWidget *popover = gtk_popover_new();
+	gtk_widget_add_css_class(popover, "menu");
+	place_popover_at_button_end(GTK_POPOVER(popover));
 	gtk_popover_set_child(GTK_POPOVER(popover), box);
 	g_signal_connect_swapped(popover, "show", G_CALLBACK(fill_menu), menu);
 	menu->button = gtk_menu_button_new();

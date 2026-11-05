@@ -74,7 +74,7 @@ static GtkWidget *create_editing_page(ServerDialog *dialog, LanguageServer *serv
 	adw_preferences_group_set_description(ADW_PREFERENCES_GROUP(basics), TEXT_SERVER_HELP);
 	adw_preferences_group_add(ADW_PREFERENCES_GROUP(basics), create_field(dialog, TEXT_SERVER_NAME, &server->name));
 	GtkWidget *command = create_field(dialog, TEXT_SERVER_COMMAND, &server->command);
-	GtkWidget *browse = gtk_button_new_from_icon_name("document-open-symbolic");
+	GtkWidget *browse = gtk_button_new_from_icon_name("folder-open-symbolic");
 	gtk_widget_set_valign(browse, GTK_ALIGN_CENTER);
 	gtk_widget_set_tooltip_text(browse, TEXT_CHOOSE_PROGRAM);
 	gtk_widget_add_css_class(browse, "flat");
@@ -95,9 +95,13 @@ static GtkWidget *create_editing_page(ServerDialog *dialog, LanguageServer *serv
 
 	GtkWidget *actions = adw_preferences_group_new();
 	GtkWidget *remove = adw_button_row_new();
-	adw_preferences_row_set_title(ADW_PREFERENCES_ROW(remove), server->is_builtin ? TEXT_RESET_SERVER
+	adw_preferences_row_set_title(ADW_PREFERENCES_ROW(remove), server->is_builtin ? TEXT_RESET_DEFAULT
 		: TEXT_REMOVE_SERVER);
-	gtk_widget_add_css_class(remove, "destructive-action");
+	adw_button_row_set_start_icon_name(ADW_BUTTON_ROW(remove), server->is_builtin ? "edit-undo-symbolic"
+		: "user-trash-symbolic");
+	/* Resetting matches the other reset rows, while removing a server for good shows as destructive */
+	if (!server->is_builtin)
+		gtk_widget_add_css_class(remove, "destructive-action");
 	g_object_set_data(G_OBJECT(remove), "server", server);
 	g_signal_connect(remove, "activated", G_CALLBACK(remove_server), dialog);
 	adw_preferences_group_add(ADW_PREFERENCES_GROUP(actions), remove);
