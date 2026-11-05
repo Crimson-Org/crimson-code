@@ -114,11 +114,6 @@
 	min-height: 26px;
 }
 
-/* A typed : command reads in the code font */
-.command-line-row > label:first-child {
-	font-family: monospace;
-}
-
 /* Rows with and without : names keep the height of a two line settings row, so the long list keeps its rhythm */
 .command-row {
 	min-height: 62px;

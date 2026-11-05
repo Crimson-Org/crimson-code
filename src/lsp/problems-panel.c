@@ -80,7 +80,8 @@ static char *shorten_paths(const char *text) {
 static GtkWidget *create_message(const char *text) {
 	g_auto(GStrv) lines = g_strsplit(text, "\n", -1);
 	g_autoptr(GString) details = g_string_new(NULL);
-	for (guint index = 1; lines[index]; index++) {
+	/* An empty message splits into no lines at all, so the details start only after a first line */
+	for (guint index = 1; lines[0] && lines[index]; index++) {
 		g_strstrip(lines[index]);
 		g_autofree char *line = shorten_paths(lines[index]);
 		if (!*line)

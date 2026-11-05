@@ -104,8 +104,10 @@ static void apply_code_style(const char *key, gpointer data) {
 	}
 	const char *font = get_text_setting("font");
 	g_autofree char *family = *font ? g_strdup_printf("\"%s\", monospace", font) : g_strdup("monospace");
-	g_autofree char *css = g_strdup_printf(".code-text { font-family: %s; font-size: %dpx; font-weight: %s; }",
-		family, get_number_setting("text-size"), get_text_setting("font-weight"));
+	/* code-font takes the family alone, for short code in the interface such as a typed command */
+	g_autofree char *css = g_strdup_printf(
+		".code-text, .code-font { font-family: %s; } .code-text { font-size: %dpx; font-weight: %s; }", family,
+		get_number_setting("text-size"), get_text_setting("font-weight"));
 	gtk_css_provider_load_from_string(code_style, css);
 	g_object_set(gtk_settings_get_default(), "gtk-cursor-blink", get_switch_setting("cursor-blink"), NULL);
 }

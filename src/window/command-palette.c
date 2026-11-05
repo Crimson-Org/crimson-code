@@ -246,7 +246,9 @@ static void add_command_line_rows(Palette *palette, const char *text) {
 		g_autofree char *line = g_strdup_printf("%s%s%s%s%s", COMMAND_LINE_PREFIX, shown, is_forced ? "!" : "",
 			*argument ? " " : "", argument);
 		GtkWidget *row = add_row(palette, NULL, line, command->label, 1, NULL);
-		gtk_widget_add_css_class(gtk_list_box_row_get_child(GTK_LIST_BOX_ROW(row)), "command-line-row");
+		/* A typed : command reads in the code font */
+		gtk_widget_add_css_class(gtk_widget_get_first_child(gtk_list_box_row_get_child(GTK_LIST_BOX_ROW(row))),
+			"code-font");
 		g_object_set_data_full(G_OBJECT(row), "line", g_steal_pointer(&line), g_free);
 	}
 }

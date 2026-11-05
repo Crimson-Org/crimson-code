@@ -426,7 +426,10 @@ gboolean is_window_sidebar_visible(Window *window) {
 }
 
 
+/* Every change to the sidebar goes through here, opening and closing a project as well */
 static void slide_sidebar(Window *window, gboolean is_visible) {
+	/* Window buttons on the left sit in the sidebar's own header while it shows */
+	adw_header_bar_set_show_start_title_buttons(ADW_HEADER_BAR(window->header), !is_visible);
 	if (is_visible == is_window_sidebar_visible(window))
 		return;
 	if (!is_visible) {
@@ -440,8 +443,6 @@ static void slide_sidebar(Window *window, gboolean is_visible) {
 
 void set_window_sidebar_visible(Window *window, gboolean is_visible) {
 	window->state.shows_sidebar = is_visible;
-	/* Window buttons on the left sit in the sidebar's own header while it shows */
-	adw_header_bar_set_show_start_title_buttons(ADW_HEADER_BAR(window->header), !is_visible);
 	slide_sidebar(window, is_visible);
 	update_window_empty_page(window);
 }

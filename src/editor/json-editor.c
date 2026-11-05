@@ -5,6 +5,7 @@
 
 #include "lang/en.h"
 #include "json-editor.h"
+#include "app/menu-placement.h"
 #include "build/json.h"
 #include "common/widgets/loading.h"
 #include "common/widgets/spacing.h"
@@ -631,7 +632,7 @@ static void on_menu_needed(GtkMenuButton *button, gpointer data) {
 
 
 static void on_context_menu_closed(GtkPopover *popover, gpointer data) {
-	g_idle_add_once((GSourceOnceFunc)gtk_widget_unparent, popover);
+	remove_popover_later(popover);
 }
 
 

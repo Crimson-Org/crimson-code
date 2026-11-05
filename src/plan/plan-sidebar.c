@@ -6,6 +6,7 @@
 #include "plan-items.h"
 #include "plan-scan.h"
 #include "plan-sidebar.h"
+#include "app/menu-placement.h"
 #include "app/settings.h"
 #include "window/sidebar.h"
 #include "common/widgets/spacing.h"
@@ -575,7 +576,7 @@ static void set_target(PlanSidebar *plan, PlanItem *item) {
 static void close_popover(GtkPopover *popover, PlanSidebar *plan) {
 	if (plan->popover == GTK_WIDGET(popover))
 		plan->popover = NULL;
-	g_idle_add_once((GSourceOnceFunc)gtk_widget_unparent, popover);
+	remove_popover_later(popover);
 }
 
 
