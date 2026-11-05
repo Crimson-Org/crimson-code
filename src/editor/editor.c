@@ -927,7 +927,7 @@ static void save_hex(Editor *editor, GFile *file) {
 gboolean save_editor(Editor *editor, GFile *file) {
 	Document *document = editor->document;
 	if (document->is_loading)
-		return TRUE;
+		return FALSE;
 	GFile *target = file ? file : gtk_source_file_get_location(document->source_file);
 	g_autoptr(GFile) folder = target ? g_file_get_parent(target) : NULL;
 	if (folder && !g_file_query_exists(folder, NULL) && editor->events.folder_missing) {

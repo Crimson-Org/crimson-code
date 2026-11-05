@@ -1,5 +1,5 @@
-// crimson-build writes each task as a .sh script for Linux and macOS and a .cmd script for
-// Windows in this folder, and those scripts run anywhere without Crimson Build.
+// crimson-build writes each task as a .sh script for Linux and macOS in this folder, and those
+// scripts run anywhere without Crimson Build.
 {
 	"systems": ["unix"],
 	"env": {
@@ -15,7 +15,8 @@
 		"SOURCE_VIEW_MINOR": "16",
 		"PKGS": "gtk4 >= 4.${GTK_MINOR} libadwaita-1 >= 1.${ADWAITA_MINOR} gtksourceview-5 >= 5.${SOURCE_VIEW_MINOR}",
 		"LIBS": "-lm -lutil",
-		"DEFINES": "-DAPPLICATION_VERSION=\"${VERSION}\" -DGDK_VERSION_MIN_REQUIRED=GDK_VERSION_4_${GTK_MINOR} -DGDK_VERSION_MAX_ALLOWED=GDK_VERSION_4_${GTK_MINOR} -DADW_VERSION_MIN_REQUIRED=ADW_VERSION_1_${ADWAITA_MINOR} -DADW_VERSION_MAX_ALLOWED=ADW_VERSION_1_${ADWAITA_MINOR} -DGTK_SOURCE_VERSION_MIN_REQUIRED=GTK_SOURCE_VERSION_5_${SOURCE_VIEW_MINOR} -DGTK_SOURCE_VERSION_MAX_ALLOWED=GTK_SOURCE_VERSION_5_${SOURCE_VIEW_MINOR}",
+		"DEFINES": "-DAPPLICATION_VERSION=\"${VERSION}\"",
+		"VERSION_CHECKS": "-DGDK_VERSION_MIN_REQUIRED=GDK_VERSION_4_${GTK_MINOR} -DGDK_VERSION_MAX_ALLOWED=GDK_VERSION_4_${GTK_MINOR} -DADW_VERSION_MIN_REQUIRED=ADW_VERSION_1_${ADWAITA_MINOR} -DADW_VERSION_MAX_ALLOWED=ADW_VERSION_1_${ADWAITA_MINOR} -DGTK_SOURCE_VERSION_MIN_REQUIRED=GTK_SOURCE_VERSION_5_${SOURCE_VIEW_MINOR} -DGTK_SOURCE_VERSION_MAX_ALLOWED=GTK_SOURCE_VERSION_5_${SOURCE_VIEW_MINOR}",
 		"INCLUDES": "-Isrc -Isubprojects/crimson-core/src -Isubprojects/crimson-build/src -Isrc/vterm/include",
 		"HEADERS": "src/*/*.h subprojects/crimson-core/src/*/*.h subprojects/crimson-core/src/*/*/*.h subprojects/crimson-build/src/build/*.h",
 		"EXTRA_LICENSES": "vterm=src/vterm/LICENSE"
@@ -29,7 +30,7 @@
 				{"mkdir": ["build/obj"]},
 				"glib-compile-resources --sourcedir assets --target build/resources.c --generate-source assets/crimson-code.gresource.xml",
 				"glib-compile-resources --sourcedir subprojects/crimson-core/assets --target build/core-resources.c --generate-source subprojects/crimson-core/assets/crimson-core.gresource.xml",
-				{"each": {"from": "src/*.c src/app/*.c src/editor/*.c src/lsp/*.c src/plan/*.c src/terminal/*.c src/window/*.c subprojects/crimson-core/src/common/*/*.c subprojects/crimson-core/src/source/*.c subprojects/crimson-build/src/build/*.c", "to": "build/obj/{id}.o", "run": "cc -std=${STD} $WARN $OPT $DEFINES $INCLUDES $(pkg-config --cflags \"$PKGS\" | sed \"s/-I/-isystem /g\") -c {from} -o {to}", "also": "${HEADERS}"}},
+				{"each": {"from": "src/*.c src/app/*.c src/editor/*.c src/lsp/*.c src/plan/*.c src/terminal/*.c src/window/*.c subprojects/crimson-core/src/common/*/*.c subprojects/crimson-core/src/source/*.c subprojects/crimson-build/src/build/*.c", "to": "build/obj/{id}.o", "run": "cc -std=${STD} $WARN $OPT $DEFINES $VERSION_CHECKS $INCLUDES $(pkg-config --cflags \"$PKGS\" | sed \"s/-I/-isystem /g\") -c {from} -o {to}", "also": "${HEADERS}"}},
 				{"each": {"from": "src/vterm/src/*.c", "to": "build/obj/{id}.o", "run": "cc -std=gnu99 $OPT -w -Isrc/vterm/include -c {from} -o {to}", "also": "src/vterm/include/*.h src/vterm/src/*.h src/vterm/src/encoding/*.inc"}},
 				{"each": {"from": "build/resources.c build/core-resources.c", "to": "build/obj/{id}.o", "run": "cc -std=gnu11 $OPT $(pkg-config --cflags gio-2.0) -c {from} -o {to}"}},
 				"cc -o build/${PROGRAM} build/obj/*.o $(pkg-config --libs \"$PKGS\") $LIBS",

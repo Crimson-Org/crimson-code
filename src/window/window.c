@@ -14,6 +14,7 @@
 #include "terminal/terminal.h"
 #include "window-private.h"
 #include "common/widgets/spacing.h"
+#include "common/window/file-drop.h"
 
 /* The interface text size in pixels, which may go below the default for small screens */
 #define DEFAULT_INTERFACE_TEXT "16"
@@ -223,11 +224,11 @@ static gboolean is_task_file(Window *window, GFile *file) {
 }
 
 
-/* Saving the task file rewrites the scripts at once, so they never fall behind what the file says */
+/* Saving the task file rewrites the scripts at once, so they never fall behind what the file says, and a tab waiting
+ * on the save closes last, since closing it frees the editor */
 static void on_editor_saved(Editor *editor, gpointer data) {
 	Window *window = data;
 	GFile *file = get_editor_file(editor);
-	finish_editor_save(window, editor, TRUE);
 	if (is_task_file(window, file)) {
 		g_autoptr(GError) error = NULL;
 		show_window_message(window, write_task_scripts(window->project, &error) ? TEXT_TASK_SCRIPTS_WRITTEN
@@ -238,6 +239,7 @@ static void on_editor_saved(Editor *editor, gpointer data) {
 	g_autofree char *path = file ? g_file_get_path(file) : NULL;
 	if (path && client != get_lsp_client_for_file(window->servers, path))
 		connect_language_server(window, editor);
+	finish_editor_save(window, editor, TRUE);
 }
 
 
@@ -1005,13 +1007,9 @@ static GtkWidget *create_content(Window *window) {
 /* ==================================== Window lifetime ==================================== */
 
 
-static gboolean drop_files(GtkDropTarget *target, const GValue *value, double x, double y, Window *window) {
-	GSList *files = gdk_file_list_get_files(g_value_get_boxed(value));
-	for (GSList *item = files; item; item = item->next)
-		open_window_path(window, item->data);
-	gboolean has_files = files != NULL;
-	g_slist_free(files);
-	return has_files;
+static void drop_files(GFile **files, guint count, gpointer data) {
+	for (guint index = 0; index < count; index++)
+		open_window_path(data, files[index]);
 }
 
 
@@ -1168,9 +1166,7 @@ Window *create_window(GtkApplication *application) {
 	watch_language_servers(on_language_servers_changed, window);
 	update_title(window);
 	update_window_empty_page(window);
-	GtkDropTarget *drop = gtk_drop_target_new(GDK_TYPE_FILE_LIST, GDK_ACTION_COPY);
-	g_signal_connect(drop, "drop", G_CALLBACK(drop_files), window);
-	gtk_widget_add_controller(window->window, GTK_EVENT_CONTROLLER(drop));
+	add_file_drop(window->window, drop_files, window);
 	g_signal_connect(window->window, "close-request", G_CALLBACK(on_close_request), window);
 	watch_window_frames(window->window);
 	update_window_status(window);

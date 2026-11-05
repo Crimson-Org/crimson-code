@@ -40,8 +40,8 @@ GtkWidget *get_editor_overlay(Editor *editor);
 GtkSourceView *get_editor_view(Editor *editor);
 
 void load_editor_file(Editor *editor, GFile *file);
-/* Saves to the given file, or to the current one when file is NULL, and returns FALSE while asking for its missing
- * folder instead */
+/* Saves to the given file, or to the current one when file is NULL, and returns FALSE when no save started, while the
+ * file still loads or while asking for its missing folder */
 gboolean save_editor(Editor *editor, GFile *file);
 GFile *get_editor_file(Editor *editor);
 char *get_editor_title(Editor *editor);
