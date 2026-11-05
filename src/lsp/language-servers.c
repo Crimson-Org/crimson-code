@@ -5,8 +5,9 @@
 #include <gio/gio.h>
 
 #include "language-servers.h"
-#include "common/key-store.h"
+#include "common/storage/key-store.h"
 
+#define SERVERS_FILE "language-servers.ini"
 #define CUSTOM_KEY "custom"
 
 /* Servers known to work without setup, in the order they are tried for a file, with folders they are often
@@ -83,7 +84,7 @@ static GPtrArray *servers, *watchers;
 
 
 static char *get_servers_path(void) {
-	return g_build_filename(g_get_user_config_dir(), "crimson-code", "language-servers.ini", NULL);
+	return get_config_file_path(SERVERS_FILE);
 }
 
 
@@ -146,9 +147,7 @@ static void load_language_servers(void) {
 		g_ptr_array_add(servers, server);
 	}
 	g_autofree char *path = get_servers_path();
-	g_autoptr(GKeyFile) file = g_key_file_new();
-	if (!g_key_file_load_from_file(file, path, G_KEY_FILE_NONE, NULL))
-		return;
+	g_autoptr(GKeyFile) file = load_key_file(path, G_KEY_FILE_NONE);
 	g_auto(GStrv) groups = g_key_file_get_groups(file, NULL);
 	for (int index = 0; groups[index]; index++) {
 		int builtin = find_builtin_index(groups[index]);
@@ -204,10 +203,7 @@ void save_language_servers(void) {
 			g_key_file_set_boolean(file, server->id, CUSTOM_KEY, TRUE);
 	}
 	g_autofree char *path = get_servers_path();
-	g_autofree char *directory = g_path_get_dirname(path);
-	g_autoptr(GError) error = NULL;
-	if (!make_private_folder(directory) || !g_key_file_save_to_file(file, path, &error))
-		g_warning("Language servers were not saved to %s", path);
+	save_key_file(file, path);
 	for (guint index = 0; watchers && index < watchers->len; index++) {
 		Watcher *watcher = g_ptr_array_index(watchers, index);
 		watcher->on_changed(watcher->data);

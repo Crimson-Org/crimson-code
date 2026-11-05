@@ -3,7 +3,7 @@
 
 #include "lang/en.h"
 #include "application.h"
-#include "common/startup.h"
+#include "common/app/startup.h"
 #include "editor/editor-colours.h"
 #include "editor/editor-guides.h"
 #include "editor/editor-completion.h"
@@ -39,28 +39,38 @@ typedef struct {
 } OpenRequest;
 
 
+/* The active window may be a dialog of the app rather than an editor window, so the editor windows are looked at */
 static Window *get_window(GtkApplication *application) {
-	GtkWindow *active = gtk_application_get_active_window(application);
-	return active ? g_object_get_data(G_OBJECT(active), "window") : create_window(application);
+	for (GList *item = gtk_application_get_windows(application); item; item = item->next) {
+		Window *window = g_object_get_data(G_OBJECT(item->data), "window");
+		if (window)
+			return window;
+	}
+	return create_window(application);
 }
 
 
-static gboolean open_requested_paths(GtkWidget *widget, GdkFrameClock *clock, gpointer data) {
+static gboolean open_requested_paths(gpointer data) {
 	OpenRequest *request = data;
 	if (request->files->len == 0)
 		restore_window_project(request->window);
 	for (guint index = 0; index < request->files->len; index++)
 		open_window_path(request->window, g_ptr_array_index(request->files, index));
 	set_window_loading(request->window, FALSE);
+	return G_SOURCE_REMOVE;
+}
+
+
+static void free_open_request(gpointer data) {
+	OpenRequest *request = data;
 	g_ptr_array_unref(request->files);
 	g_free(request);
-	return G_SOURCE_REMOVE;
 }
 
 
 static void present_and_open(GApplication *application, GFile **files, int count) {
 	OpenRequest *request = g_new0(OpenRequest, 1);
-	gboolean is_new = gtk_application_get_active_window(GTK_APPLICATION(application)) == NULL;
+	gboolean is_new = gtk_application_get_windows(GTK_APPLICATION(application)) == NULL;
 	request->window = get_window(GTK_APPLICATION(application));
 	request->files = g_ptr_array_new_with_free_func(g_object_unref);
 	for (int index = 0; index < count; index++)
@@ -68,12 +78,11 @@ static void present_and_open(GApplication *application, GFile **files, int count
 	GtkWidget *window = GTK_WIDGET(get_gtk_window(request->window));
 	gtk_window_present(GTK_WINDOW(window));
 	if (!is_new && count == 0) {
-		g_ptr_array_unref(request->files);
-		g_free(request);
+		free_open_request(request);
 		return;
 	}
 	set_window_loading(request->window, TRUE);
-	gtk_widget_add_tick_callback(window, open_requested_paths, request, NULL);
+	run_after_frame(window, open_requested_paths, request, free_open_request);
 }
 
 
@@ -84,15 +93,6 @@ static void activate(GApplication *application) {
 
 static void open_files(GApplication *application, GFile **files, int count, const char *hint) {
 	present_and_open(application, files, count);
-}
-
-
-static void quit(GSimpleAction *action, GVariant *parameter, gpointer application) {
-	/* Closing a window removes it from the application's own list, so walk a copy */
-	GList *windows = g_list_copy(gtk_application_get_windows(GTK_APPLICATION(application)));
-	for (GList *item = windows; item; item = item->next)
-		gtk_window_close(item->data);
-	g_list_free(windows);
 }
 
 
@@ -118,10 +118,6 @@ static void start_up(GApplication *application) {
 	gtk_source_init();
 	/* Extra languages must be added before the first file is opened, when the language list is read */
 	gtk_source_language_manager_append_search_path(gtk_source_language_manager_get_default(), LANGUAGE_RESOURCES);
-	static const GActionEntry ENTRIES[] = {
-		{"quit", quit, NULL, NULL, NULL, {0}},
-	};
-	g_action_map_add_action_entries(G_ACTION_MAP(application), ENTRIES, G_N_ELEMENTS(ENTRIES), application);
 	register_components();
 }
 

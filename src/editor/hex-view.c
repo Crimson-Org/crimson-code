@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include <string.h>
 
 #include <adwaita.h>
@@ -5,7 +6,7 @@
 
 #include "lang/en.h"
 #include "hex-view.h"
-#include "common/spacing.h"
+#include "common/widgets/spacing.h"
 
 #define BYTES_PER_ROW 16
 #define GROUP_SIZE 8
@@ -222,10 +223,16 @@ gboolean is_hex_document_modified(HexDocument *document) {
 }
 
 
-/* The file is replaced as a whole, so the mapping of the old one stays valid and the patches still describe it */
+/* The bytes are read from the mapping while the new file is written, so the new file is always a fresh one moved
+ * into place, never the old one cut short, which would pull the mapping away. A link is followed to its real file
+ * first, so the link stays, and the mapping of the old file stays valid with the patches still describing it */
 gboolean save_hex_document(HexDocument *document, GFile *file, GError **error) {
-	GFile *target = file ? file : document->file;
-	g_autoptr(GFileOutputStream) stream = g_file_replace(target, NULL, FALSE, G_FILE_CREATE_NONE, NULL, error);
+	GFile *chosen = file ? file : document->file;
+	g_autofree char *chosen_path = g_file_get_path(chosen);
+	g_autofree char *real_path = chosen_path ? realpath(chosen_path, NULL) : NULL;
+	g_autoptr(GFile) target = real_path ? g_file_new_for_path(real_path) : g_object_ref(chosen);
+	g_autoptr(GFileOutputStream) stream = g_file_replace(target, NULL, FALSE, G_FILE_CREATE_REPLACE_DESTINATION, NULL,
+		error);
 	if (!stream)
 		return FALSE;
 	g_autofree guint8 *chunk = g_malloc(SAVE_CHUNK_BYTES);

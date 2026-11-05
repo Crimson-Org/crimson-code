@@ -5,7 +5,7 @@
 
 #include "lang/en.h"
 #include "comment-markers.h"
-#include "common/key-store.h"
+#include "common/storage/key-store.h"
 #include "app/settings-dialog.h"
 
 #define MARKERS_FILE "comments.ini"

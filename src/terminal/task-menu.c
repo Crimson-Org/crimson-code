@@ -1,7 +1,7 @@
 #include "lang/en.h"
 #include "task-menu.h"
 #include "build/tasks.h"
-#include "common/spacing.h"
+#include "common/widgets/spacing.h"
 
 #define MENU_WIDTH 320
 

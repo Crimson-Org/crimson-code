@@ -23,6 +23,9 @@ static const struct {
 
 /* ==================================== Pages ==================================== */
 
+/* Marks a tab that closes once its save has succeeded */
+#define CLOSE_AFTER_SAVE_KEY "close-after-save"
+
 
 static Editor *get_page_editor(AdwTabPage *page) {
 	return page ? g_object_get_data(G_OBJECT(adw_tab_page_get_child(page)), EDITOR_KEY) : NULL;
@@ -87,7 +90,9 @@ void update_window_tab(Window *window, Editor *editor) {
 	adw_tab_page_set_icon(page, icon);
 	GFile *file = get_editor_file(editor);
 	g_autofree char *path = file ? g_file_get_path(file) : NULL;
-	adw_tab_page_set_tooltip(page, path ? path : name);
+	/* Tab tooltips read markup, while a path is plain text */
+	g_autofree char *tooltip = g_markup_escape_text(path ? path : name, -1);
+	adw_tab_page_set_tooltip(page, tooltip);
 }
 
 
@@ -364,15 +369,54 @@ static void finish_close(AdwTabView *tabs, AdwTabPage *page, gboolean is_closing
 }
 
 
+/* Saves the editor and closes its tab once the save has succeeded, so a failed save never loses the text, while a
+ * save that waits on the missing folder question keeps the file open */
+void save_and_close_editor(Window *window, Editor *editor) {
+	AdwTabPage *page = find_editor_page(editor);
+	if (!page)
+		return;
+	if (!get_editor_file(editor)) {
+		show_window_message(window, TEXT_SAVE_AS_FIRST);
+		return;
+	}
+	g_object_set_data(G_OBJECT(page), CLOSE_AFTER_SAVE_KEY, GINT_TO_POINTER(TRUE));
+	if (!save_editor(editor, NULL))
+		g_object_set_data(G_OBJECT(page), CLOSE_AFTER_SAVE_KEY, NULL);
+}
+
+
+/* The tabs showing this text that waited for the save, which then close or stay */
+static GPtrArray *take_waiting_editors(Window *window, Editor *saved) {
+	GPtrArray *waiting = g_ptr_array_new();
+	for (guint pane_index = 0; pane_index < window->panes->len; pane_index++) {
+		Pane *pane = g_ptr_array_index(window->panes, pane_index);
+		for (int index = 0; index < adw_tab_view_get_n_pages(pane->tabs); index++) {
+			AdwTabPage *page = adw_tab_view_get_nth_page(pane->tabs, index);
+			Editor *editor = get_page_editor(page);
+			if (editor && is_same_document(editor, saved) && g_object_steal_data(G_OBJECT(page), CLOSE_AFTER_SAVE_KEY))
+				g_ptr_array_add(waiting, editor);
+		}
+	}
+	return waiting;
+}
+
+
+void finish_editor_save(Window *window, Editor *saved, gboolean is_saved) {
+	g_autoptr(GPtrArray) waiting = take_waiting_editors(window, saved);
+	for (guint index = 0; is_saved && index < waiting->len; index++)
+		close_window_editor(window, g_ptr_array_index(waiting, index), TRUE);
+}
+
+
 static void on_close_answered(GObject *dialog, GAsyncResult *result, gpointer data) {
 	AdwTabPage *page = data;
 	Pane *pane = g_object_get_data(G_OBJECT(dialog), PANE_KEY);
 	const char *answer = adw_alert_dialog_choose_finish(ADW_ALERT_DIALOG(dialog), result);
-	/* A save waiting on the missing folder question keeps the file open */
-	gboolean is_closing = strcmp(answer, "cancel") != 0;
-	if (strcmp(answer, "save") == 0)
-		is_closing = save_editor(get_page_editor(page), NULL);
-	finish_close(pane->tabs, page, is_closing);
+	gboolean is_saving = strcmp(answer, "save") == 0;
+	/* Saving keeps the tab until the file is written, and it closes itself then */
+	finish_close(pane->tabs, page, strcmp(answer, "discard") == 0);
+	if (is_saving)
+		save_and_close_editor(pane->window, get_page_editor(page));
 	g_object_unref(page);
 }
 

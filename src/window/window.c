@@ -2,7 +2,7 @@
 
 #include "lang/en.h"
 #include "app/commands.h"
-#include "common/startup.h"
+#include "common/app/startup.h"
 #include "editor/hex-view.h"
 #include "lsp/problems-panel.h"
 #include "app/settings.h"
@@ -13,8 +13,12 @@
 #include "terminal/terminal-tabs.h"
 #include "terminal/terminal.h"
 #include "window-private.h"
-#include "common/spacing.h"
+#include "common/widgets/spacing.h"
 
+/* The interface text size in pixels, which may go below the default for small screens */
+#define DEFAULT_INTERFACE_TEXT "16"
+#define SMALLEST_INTERFACE_TEXT 10
+#define LARGEST_INTERFACE_TEXT 32
 #define DOUBLE_CLICK_PRESSES 2
 #define BOTTOM_PANEL_MINIMUM_HEIGHT 120
 #define SIDEBAR_MINIMUM_WIDTH 160
@@ -39,7 +43,8 @@ static const SettingDefinition WINDOW_SETTINGS[] = {
 	{"style", "appearance", TEXT_GROUP_STYLE, TEXT_SETTING_STYLE, NULL, SETTING_CHOICE, "system", 0, 0,
 		STYLE_CHOICES, NULL, {"background", "bg"}},
 	{"interface-text-size", "appearance", TEXT_GROUP_STYLE, TEXT_SETTING_INTERFACE_SIZE,
-		TEXT_SETTING_INTERFACE_SIZE_DETAIL, SETTING_NUMBER, "16", 16, 32, NULL, NULL, {NULL}},
+		TEXT_SETTING_INTERFACE_SIZE_DETAIL, SETTING_NUMBER, DEFAULT_INTERFACE_TEXT, SMALLEST_INTERFACE_TEXT,
+		LARGEST_INTERFACE_TEXT, NULL, NULL, {NULL}},
 	{"font-rendering", "appearance", TEXT_GROUP_STYLE, TEXT_SETTING_RENDERING, TEXT_SETTING_RENDERING_DETAIL,
 		SETTING_CHOICE, "crisp", 0, 0, RENDERING_CHOICES, NULL, {NULL}},
 	{"tab-bar", "appearance", TEXT_GROUP_LAYOUT, TEXT_SETTING_TAB_BAR, NULL, SETTING_CHOICE, "automatic", 0, 0,
@@ -222,6 +227,7 @@ static gboolean is_task_file(Window *window, GFile *file) {
 static void on_editor_saved(Editor *editor, gpointer data) {
 	Window *window = data;
 	GFile *file = get_editor_file(editor);
+	finish_editor_save(window, editor, TRUE);
 	if (is_task_file(window, file)) {
 		g_autoptr(GError) error = NULL;
 		show_window_message(window, write_task_scripts(window->project, &error) ? TEXT_TASK_SCRIPTS_WRITTEN
@@ -241,6 +247,7 @@ static gboolean on_editor_command_requested(Editor *editor, const char *command,
 
 
 static void on_editor_failed(Editor *editor, const char *message, gpointer data) {
+	finish_editor_save(data, editor, FALSE);
 	show_window_message(data, message);
 }
 
@@ -327,7 +334,10 @@ void refresh_window_for_editor(Window *window) {
 
 
 void show_window_message(Window *window, const char *message) {
-	adw_toast_overlay_add_toast(ADW_TOAST_OVERLAY(window->toasts), adw_toast_new(message));
+	/* Messages hold paths and error texts, which are plain text and never markup */
+	AdwToast *toast = adw_toast_new(message);
+	adw_toast_set_use_markup(toast, FALSE);
+	adw_toast_overlay_add_toast(ADW_TOAST_OVERLAY(window->toasts), toast);
 }
 
 
@@ -1162,7 +1172,7 @@ Window *create_window(GtkApplication *application) {
 	g_signal_connect(drop, "drop", G_CALLBACK(drop_files), window);
 	gtk_widget_add_controller(window->window, GTK_EVENT_CONTROLLER(drop));
 	g_signal_connect(window->window, "close-request", G_CALLBACK(on_close_request), window);
-	note_first_frame(window->window);
+	watch_window_frames(window->window);
 	update_window_status(window);
 	return window;
 }

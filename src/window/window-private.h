@@ -11,7 +11,7 @@
 #include "window.h"
 
 /* Put before the name of a file with unsaved changes */
-#define MODIFIED_MARK "\u2022 "
+#define MODIFIED_MARK "* "
 
 typedef struct Pane Pane;
 
@@ -65,6 +65,10 @@ Editor *open_window_file(Window *window, GFile *file);
 Editor *add_window_editor(Window *window);
 /* Closes the file's tab, asking about unsaved changes unless is_forced */
 void close_window_editor(Window *window, Editor *editor, gboolean is_forced);
+/* Saves the editor and closes its tab only once the save has succeeded */
+void save_and_close_editor(Window *window, Editor *editor);
+/* Closes the tabs that waited for this text's save, or keeps them when it failed */
+void finish_editor_save(Window *window, Editor *saved, gboolean is_saved);
 GPtrArray *list_window_editors(Window *window);
 /* Brings forward a view of the file wherever it is open, or opens it in the current pane */
 Editor *show_window_file(Window *window, GFile *file);

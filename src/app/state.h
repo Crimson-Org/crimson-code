@@ -1,6 +1,6 @@
 #pragma once
 
-#include "common/window-geometry.h"
+#include "common/window/window-geometry.h"
 
 /* Window layout and the last project, kept between launches */
 typedef struct {

@@ -1,6 +1,6 @@
 #include "lang/en.h"
 #include "find-bar.h"
-#include "common/spacing.h"
+#include "common/widgets/spacing.h"
 #include "editor/editor.h"
 
 #define CONTEXT_KEY "find-context"

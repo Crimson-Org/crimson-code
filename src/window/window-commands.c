@@ -104,11 +104,30 @@ static void new_file(Window *window, CommandInput *input) {
 }
 
 
+/* The dialog may outlive the editor it was opened for, so the editor is used only while its window still has it */
+typedef struct {
+	GtkWidget *window;
+	Editor *editor;
+} SaveRequest;
+
+
+static gboolean has_editor_still(GtkWidget *widget, Editor *editor) {
+	Window *window = gtk_window_get_application(GTK_WINDOW(widget)) ? g_object_get_data(G_OBJECT(widget), "window")
+		: NULL;
+	if (!window)
+		return FALSE;
+	g_autoptr(GPtrArray) editors = list_window_editors(window);
+	return g_ptr_array_find(editors, editor, NULL);
+}
+
+
 static void on_save_target_chosen(GObject *chooser, GAsyncResult *result, gpointer data) {
-	Editor *editor = data;
+	SaveRequest *request = data;
 	g_autoptr(GFile) file = gtk_file_dialog_save_finish(GTK_FILE_DIALOG(chooser), result, NULL);
-	if (file)
-		save_editor(editor, file);
+	if (file && has_editor_still(request->window, request->editor))
+		save_editor(request->editor, file);
+	g_object_unref(request->window);
+	g_free(request);
 }
 
 
@@ -129,7 +148,9 @@ static void save_file_as(Window *window, CommandInput *input) {
 		g_autoptr(GFile) folder = get_start_folder(window);
 		gtk_file_dialog_set_initial_folder(chooser, folder);
 	}
-	gtk_file_dialog_save(chooser, GTK_WINDOW(window->window), NULL, on_save_target_chosen, editor);
+	SaveRequest *request = g_new0(SaveRequest, 1);
+	*request = (SaveRequest){g_object_ref(window->window), editor};
+	gtk_file_dialog_save(chooser, GTK_WINDOW(window->window), NULL, on_save_target_chosen, request);
 }
 
 
@@ -161,15 +182,8 @@ static void close_file(Window *window, CommandInput *input) {
 
 static void save_and_close(Window *window, CommandInput *input) {
 	Editor *editor = get_current_editor(window);
-	if (!editor)
-		return;
-	if (save_editor(editor, NULL))
-		close_window_editor(window, editor, TRUE);
-}
-
-
-static void close_window(Window *window, CommandInput *input) {
-	gtk_window_close(GTK_WINDOW(window->window));
+	if (editor)
+		save_and_close_editor(window, editor);
 }
 
 
@@ -459,11 +473,21 @@ static void show_commands(Window *window, CommandInput *input) {
 }
 
 
+/* About and Quit are the same in every Crimson app, so the commands run the application's own */
 static void show_about(Window *window, CommandInput *input) {
-	AdwDialog *dialog = adw_about_dialog_new();
-	adw_about_dialog_set_application_name(ADW_ABOUT_DIALOG(dialog), TEXT_APPLICATION_NAME);
-	adw_about_dialog_set_version(ADW_ABOUT_DIALOG(dialog), APPLICATION_VERSION);
-	adw_dialog_present(dialog, window->window);
+	g_action_group_activate_action(G_ACTION_GROUP(g_application_get_default()), "about", NULL);
+}
+
+
+/* Quit closes every window, each asking about its own unsaved files, while :qa! leaves them unsaved */
+static void quit(Window *window, CommandInput *input) {
+	GtkApplication *application = GTK_APPLICATION(g_application_get_default());
+	for (GList *item = gtk_application_get_windows(application); input->is_forced && item; item = item->next) {
+		Window *open = g_object_get_data(G_OBJECT(item->data), "window");
+		if (open)
+			open->is_close_confirmed = TRUE;
+	}
+	g_action_group_activate_action(G_ACTION_GROUP(application), "quit", NULL);
 }
 
 
@@ -570,7 +594,7 @@ static const Command COMMANDS[] = {
 	{"settings", TEXT_SETTINGS, "program", {"<Control>comma"}, COMMAND_EVERYWHERE, {"settings", "options"},
 		show_settings, NULL, NULL, NULL},
 	{"about", TEXT_ABOUT, "program", {NULL}, COMMAND_EVERYWHERE, {NULL}, show_about, NULL, NULL, NULL},
-	{"quit", TEXT_QUIT, "program", {"<Control>q"}, COMMAND_EVERYWHERE, {"qa", "qall", "quitall"}, close_window,
+	{"quit", TEXT_QUIT, "program", {"<Control>q"}, COMMAND_EVERYWHERE, {"qa", "qall", "quitall"}, quit,
 		NULL, NULL, NULL},
 };
 
@@ -630,14 +654,6 @@ static void sync_switch_actions(const char *key, gpointer data) {
 }
 
 
-/* Ctrl with Shift is never used by shells or Vim, so those shortcuts work wherever the focus is */
-static CommandScope get_trigger_scope(const Command *command, const char *trigger) {
-	gboolean has_shift = strstr(trigger, "<Shift>") != NULL;
-	gboolean has_control = strstr(trigger, "<Control>") != NULL;
-	return has_shift && has_control ? COMMAND_EVERYWHERE : command->scope;
-}
-
-
 static gboolean is_focus_inside(Window *window, GtkWidget *container) {
 	GtkWidget *focus = gtk_root_get_focus(GTK_ROOT(window->window));
 	return focus && (focus == container || gtk_widget_is_ancestor(focus, container));
@@ -649,12 +665,13 @@ static gboolean run_shortcut(GtkWidget *widget, GVariant *arguments, gpointer da
 	Window *window = g_object_get_data(G_OBJECT(widget), "window");
 	ShortcutBinding *binding = data;
 	const Command *command = binding->command;
-	CommandScope scope = get_trigger_scope(command, binding->trigger);
+	/* Each command says where its keys work, since a terminal uses Ctrl with Shift too, such as to copy */
+	CommandScope scope = command->scope;
 	if (scope != COMMAND_EVERYWHERE && is_focus_inside(window, window->terminals))
 		return FALSE;
 	GtkWidget *focus = gtk_root_get_focus(GTK_ROOT(window->window));
 	if (scope == COMMAND_EASY_EDITING && get_switch_setting("vim-mode") && GTK_SOURCE_IS_VIEW(focus)
-		&& !get_switch_setting("vim-gives-control-keys"))
+		&& !get_switch_setting("vim-control-shortcuts"))
 		return FALSE;
 	if (command->is_available && !command->is_available(window))
 		return FALSE;

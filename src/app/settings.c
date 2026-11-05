@@ -1,8 +1,9 @@
 #include <string.h>
 
 #include "settings.h"
-#include "common/key-store.h"
+#include "common/storage/key-store.h"
 
+#define SETTINGS_FILE "settings.ini"
 #define SETTINGS_GROUP "settings"
 #define TRUE_TEXT "true"
 #define FALSE_TEXT "false"
@@ -25,7 +26,7 @@ static GKeyFile *saved;
 
 
 static char *get_settings_path(void) {
-	return g_build_filename(g_get_user_config_dir(), "crimson-code", "settings.ini", NULL);
+	return get_config_file_path(SETTINGS_FILE);
 }
 
 
@@ -37,9 +38,8 @@ static void prepare(void) {
 	settings = g_ptr_array_new();
 	watchers = g_ptr_array_new_with_free_func(g_free);
 	values = g_hash_table_new(g_str_hash, g_str_equal);
-	saved = g_key_file_new();
 	g_autofree char *path = get_settings_path();
-	g_key_file_load_from_file(saved, path, G_KEY_FILE_NONE, NULL);
+	saved = load_key_file(path, G_KEY_FILE_NONE);
 }
 
 
@@ -167,10 +167,7 @@ static void save_settings(void) {
 			g_key_file_set_string(saved, SETTINGS_GROUP, definition->key, setting->value);
 	}
 	g_autofree char *path = get_settings_path();
-	g_autofree char *directory = g_path_get_dirname(path);
-	g_autoptr(GError) error = NULL;
-	if (!make_private_folder(directory) || !g_key_file_save_to_file(saved, path, &error))
-		g_warning("Settings were not saved to %s", path);
+	save_key_file(saved, path);
 }
 
 

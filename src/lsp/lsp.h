@@ -31,6 +31,9 @@ typedef struct LspClient LspClient;
 /* The running servers of one project, started when the first matching file opens */
 typedef struct LspManager LspManager;
 
+/* Each holder of a client keeps it alive, so a client the manager replaces stays valid until its holders let go */
+LspClient *hold_lsp_client(LspClient *client);
+void release_lsp_client(LspClient *client);
 const char *get_lsp_client_name(const LspClient *client);
 /* Columns count bytes when true and UTF-16 code units otherwise */
 gboolean uses_utf8_columns(const LspClient *client);

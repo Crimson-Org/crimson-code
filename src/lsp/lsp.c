@@ -8,6 +8,9 @@
 #include "lsp.h"
 
 #define CONTENT_LENGTH_HEADER "Content-Length:"
+/* No message a server sends is anywhere near this, so a larger one means the server is broken */
+#define MAXIMUM_MESSAGE_BYTES (256 * 1024 * 1024)
+#define DECIMAL_BASE 10
 #define STOP_GRACE_MILLISECONDS 2000
 #define METHOD_NOT_FOUND -32601
 #define FULL_TEXT_SYNC 1
@@ -79,12 +82,12 @@ static void clear_client(gpointer data) {
 }
 
 
-static LspClient *hold_client(LspClient *client) {
+LspClient *hold_lsp_client(LspClient *client) {
 	return g_rc_box_acquire(client);
 }
 
 
-static void release_client(LspClient *client) {
+void release_lsp_client(LspClient *client) {
 	g_rc_box_release_full(client, clear_client);
 }
 
@@ -138,7 +141,7 @@ static void on_message_written(GObject *source, GAsyncResult *result, gpointer d
 		mark_client_stopped(client);
 	else
 		flush_outgoing(client);
-	release_client(client);
+	release_lsp_client(client);
 }
 
 
@@ -150,7 +153,7 @@ static void flush_outgoing(LspClient *client) {
 	gsize length = 0;
 	const void *bytes = g_bytes_get_data(client->writing, &length);
 	g_output_stream_write_all_async(client->output, bytes, length, G_PRIORITY_DEFAULT, client->cancellable,
-		on_message_written, hold_client(client));
+		on_message_written, hold_lsp_client(client));
 }
 
 
@@ -329,7 +332,7 @@ static void on_body_read(GObject *source, GAsyncResult *result, gpointer data) {
 	if (!g_input_stream_read_all_finish(G_INPUT_STREAM(source), result, &length, &error)
 		|| length != client->content_length) {
 		mark_client_stopped(client);
-		release_client(client);
+		release_lsp_client(client);
 		return;
 	}
 	g_autoptr(JsonValue) message = parse_json(client->body, (gssize)length, &error);
@@ -341,7 +344,7 @@ static void on_body_read(GObject *source, GAsyncResult *result, gpointer data) {
 		g_warning("%s sent a message that is not JSON: %s", client->name, error->message);
 	if (client->is_running)
 		read_header(client);
-	release_client(client);
+	release_lsp_client(client);
 }
 
 
@@ -352,25 +355,33 @@ static void on_header_read(GObject *source, GAsyncResult *result, gpointer data)
 		&error);
 	if (!line) {
 		mark_client_stopped(client);
-		release_client(client);
+		release_lsp_client(client);
 		return;
 	}
 	if (g_ascii_strncasecmp(line, CONTENT_LENGTH_HEADER, strlen(CONTENT_LENGTH_HEADER)) == 0)
-		client->content_length = g_ascii_strtoull(line + strlen(CONTENT_LENGTH_HEADER), NULL, 10);
+		client->content_length = g_ascii_strtoull(line + strlen(CONTENT_LENGTH_HEADER), NULL, DECIMAL_BASE);
+	if (client->content_length > MAXIMUM_MESSAGE_BYTES) {
+		g_warning("%s announced a message of %" G_GUINT64_FORMAT " bytes, so it was stopped", client->name,
+			(guint64)client->content_length);
+		mark_client_stopped(client);
+		g_subprocess_force_exit(client->process);
+		release_lsp_client(client);
+		return;
+	}
 	if (*line || client->content_length == 0) {
 		read_header(client);
 	} else {
 		client->body = g_malloc(client->content_length + 1);
 		g_input_stream_read_all_async(G_INPUT_STREAM(client->input), client->body, client->content_length,
-			G_PRIORITY_DEFAULT, client->cancellable, on_body_read, hold_client(client));
+			G_PRIORITY_DEFAULT, client->cancellable, on_body_read, hold_lsp_client(client));
 	}
-	release_client(client);
+	release_lsp_client(client);
 }
 
 
 static void read_header(LspClient *client) {
 	g_data_input_stream_read_line_async(client->input, G_PRIORITY_DEFAULT, client->cancellable, on_header_read,
-		hold_client(client));
+		hold_lsp_client(client));
 }
 
 
@@ -381,9 +392,9 @@ static void on_error_line_read(GObject *source, GAsyncResult *result, gpointer d
 	if (line) {
 		g_debug("%s: %s", client->name, line);
 		g_data_input_stream_read_line_async(client->errors, G_PRIORITY_LOW, client->cancellable,
-			on_error_line_read, hold_client(client));
+			on_error_line_read, hold_lsp_client(client));
 	}
-	release_client(client);
+	release_lsp_client(client);
 }
 
 
@@ -391,7 +402,7 @@ static void on_process_exited(GObject *source, GAsyncResult *result, gpointer da
 	LspClient *client = data;
 	g_subprocess_wait_finish(G_SUBPROCESS(source), result, NULL);
 	mark_client_stopped(client);
-	release_client(client);
+	release_lsp_client(client);
 }
 
 
@@ -493,10 +504,10 @@ static LspClient *start_client(const LanguageServer *server, const char *root) {
 	client->documents = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
 	client->is_running = TRUE;
 	g_message("Starting %s with %s in %s", server->name, program, root);
-	g_subprocess_wait_async(process, NULL, on_process_exited, hold_client(client));
+	g_subprocess_wait_async(process, NULL, on_process_exited, hold_lsp_client(client));
 	read_header(client);
 	g_data_input_stream_read_line_async(client->errors, G_PRIORITY_LOW, client->cancellable, on_error_line_read,
-		hold_client(client));
+		hold_lsp_client(client));
 	send_initialize(client);
 	return client;
 }
@@ -506,7 +517,7 @@ static gboolean force_client_exit(gpointer data) {
 	LspClient *client = data;
 	if (client->is_running)
 		g_subprocess_force_exit(client->process);
-	release_client(client);
+	release_lsp_client(client);
 	return G_SOURCE_REMOVE;
 }
 
@@ -521,8 +532,8 @@ static void stop_client(LspClient *client) {
 	g_hash_table_remove_all(client->documents);
 	if (client->is_running && client->is_initialized)
 		send_request(client, "shutdown", new_json_null(), on_shutdown_answered, NULL, TRUE);
-	g_timeout_add(STOP_GRACE_MILLISECONDS, force_client_exit, hold_client(client));
-	release_client(client);
+	g_timeout_add(STOP_GRACE_MILLISECONDS, force_client_exit, hold_lsp_client(client));
+	release_lsp_client(client);
 }
 
 
@@ -577,10 +588,26 @@ void open_lsp_document(LspClient *client, const char *uri, const char *language_
 
 
 /* Sends the whole text each time, which each server accepts and keeps the editor side simple */
+/* Each change sends the whole text, so a newer change waiting for the server replaces an older one for the file */
+static void drop_waiting_change(LspClient *client, const char *uri) {
+	for (GList *item = client->waiting->head; item; item = item->next) {
+		JsonValue *message = item->data;
+		if (g_strcmp0(get_json_string(get_json_member(message, "method"), NULL), "textDocument/didChange") == 0
+			&& g_strcmp0(get_json_string(find_json_path(message, "params.textDocument.uri"), NULL), uri) == 0) {
+			free_json(message);
+			g_queue_delete_link(client->waiting, item);
+			return;
+		}
+	}
+}
+
+
 void change_lsp_document(LspClient *client, const char *uri, const char *text) {
 	Document *document = g_hash_table_lookup(client->documents, uri);
 	if (!document)
 		return;
+	if (!client->is_initialized)
+		drop_waiting_change(client, uri);
 	JsonValue *identifier = make_document_identifier(uri);
 	set_json_member(identifier, "version", new_json_number(++document->version));
 	JsonValue *change = set_json_member(new_json_object(), "text", new_json_string(text));

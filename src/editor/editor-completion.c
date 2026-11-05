@@ -6,7 +6,7 @@
 #include "editor-completion.h"
 #include "editor.h"
 #include "app/settings.h"
-#include "common/spacing.h"
+#include "common/widgets/spacing.h"
 
 #define POPUP_KEY "completion-popup"
 #define TYPING_DELAY_MILLISECONDS 150
@@ -290,7 +290,8 @@ static void create_popover(CompletionPopup *popup) {
 	GtkListItemFactory *factory = gtk_signal_list_item_factory_new();
 	g_signal_connect(factory, "setup", G_CALLBACK(set_up_row), NULL);
 	g_signal_connect(factory, "bind", G_CALLBACK(bind_row), NULL);
-	popup->list = gtk_list_view_new(GTK_SELECTION_MODEL(popup->selection), factory);
+	/* The list takes over the reference it is given, so the popup keeps one of its own for later */
+	popup->list = gtk_list_view_new(GTK_SELECTION_MODEL(g_object_ref(popup->selection)), factory);
 	gtk_list_view_set_single_click_activate(GTK_LIST_VIEW(popup->list), TRUE);
 	gtk_widget_set_focusable(popup->list, FALSE);
 	gtk_widget_add_css_class(popup->list, "completion-list");

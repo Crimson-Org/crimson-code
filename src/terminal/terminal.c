@@ -614,6 +614,22 @@ static void on_shell_ended(GPid child, int status, gpointer data) {
 }
 
 
+/* The app ignores SIGPIPE, as GLib's sockets set, and a shell started from it would pass that on to every
+ * command, which then fail with broken pipe errors, so the shell starts with every signal as a new process has it */
+static void reset_child_signals(void) {
+	sigset_t none;
+	sigemptyset(&none);
+	sigprocmask(SIG_SETMASK, &none, NULL);
+	for (int number = 1; number < NSIG; number++)
+		signal(number, SIG_DFL);
+}
+
+
+static void forget_ended_shell(GPid pid, int status, gpointer data) {
+	g_spawn_close_pid(pid);
+}
+
+
 /* Everything the child needs is prepared before forking, since only plain system calls are safe after */
 static void start_shell(Terminal *terminal) {
 	const char *command = get_text_setting("terminal-shell");
@@ -641,6 +657,7 @@ static void start_shell(Terminal *terminal) {
 	if (child == 0) {
 		/* Pipes to language servers and other open files must not leak into the shell */
 		close_range(FIRST_EXTRA_FILE, ~0u, 0);
+		reset_child_signals();
 		if (terminal->directory && chdir(terminal->directory) != 0)
 			_exit(1);
 		execve(shell, arguments, environment);
@@ -857,8 +874,11 @@ static void terminal_dispose(GObject *object) {
 	Terminal *terminal = CRIMSON_TERMINAL(object);
 	g_clear_handle_id(&terminal->read_source, g_source_remove);
 	g_clear_handle_id(&terminal->child_watch, g_source_remove);
-	if (terminal->child > 0)
+	/* The shell is still collected once it has ended, so a closed terminal leaves no zombie behind */
+	if (terminal->child > 0) {
 		kill(terminal->child, SIGHUP);
+		g_child_watch_add(terminal->child, forget_ended_shell, NULL);
+	}
 	terminal->child = 0;
 	if (terminal->pty >= 0)
 		close(terminal->pty);

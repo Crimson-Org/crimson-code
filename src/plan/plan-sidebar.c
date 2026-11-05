@@ -7,7 +7,7 @@
 #include "plan-scan.h"
 #include "plan-sidebar.h"
 #include "app/settings.h"
-#include "common/spacing.h"
+#include "common/widgets/spacing.h"
 
 #define NEW_TASK_ENTRY_WIDTH 240
 #define PLAN_KEY "plan"
@@ -339,13 +339,23 @@ static char *add_task(const char *text, PlanItem *file, PlanItem *item, const ch
 }
 
 
-/* A project without a plan file gets a TODO file in its folder for the first task */
+/* A project without a listed plan file gets a TODO file in its folder for the first task, while a TODO file that is
+ * there but not listed yet, such as during the first scan, keeps its text and gets the task at its end */
 static void create_plan_file(PlanSidebar *plan, const char *task) {
 	g_autofree char *path = g_build_filename(plan->folder, NEW_PLAN_FILE, NULL);
 	g_autoptr(GFile) file = g_file_new_for_path(path);
-	g_autofree char *text = g_strdup_printf("[ ] %s\n", task);
+	g_autofree char *line = g_strdup_printf("[ ] %s\n", task);
+	g_autofree char *existing = NULL;
+	gsize length = 0;
+	g_file_get_contents(path, &existing, &length, NULL);
+	gboolean needs_break = length > 0 && existing[length - 1] != '\n';
+	g_autofree char *text = g_strconcat(existing ? existing : "", needs_break ? "\n" : "", line, NULL);
 	g_autoptr(GError) error = NULL;
-	if (!g_file_replace_contents(file, text, strlen(text), NULL, FALSE, G_FILE_CREATE_NONE, NULL, NULL, &error)) {
+	g_autoptr(GFileOutputStream) stream = existing ? g_file_append_to(file, G_FILE_CREATE_NONE, NULL, &error)
+		: g_file_create(file, G_FILE_CREATE_NONE, NULL, &error);
+	const char *added = text + (existing ? length : 0);
+	if (!stream || !g_output_stream_write_all(G_OUTPUT_STREAM(stream), added, strlen(added), NULL, NULL, &error)
+		|| !g_output_stream_close(G_OUTPUT_STREAM(stream), NULL, &error)) {
 		plan->events.failed(error->message, plan->events.data);
 		return;
 	}
@@ -767,14 +777,9 @@ static GtkWidget *create_list(PlanSidebar *plan) {
 }
 
 
+/* Empty pages carry no explaining text, and the header's + adds the first task */
 static GtkWidget *create_empty_page(void) {
-	GtkWidget *label = gtk_label_new(TEXT_PLAN_EMPTY);
-	gtk_label_set_wrap(GTK_LABEL(label), TRUE);
-	gtk_label_set_justify(GTK_LABEL(label), GTK_JUSTIFY_CENTER);
-	gtk_widget_add_css_class(label, "dim-label");
-	gtk_widget_set_margin_start(label, SPACING_NORMAL);
-	gtk_widget_set_margin_end(label, SPACING_NORMAL);
-	return label;
+	return gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 }
 
 

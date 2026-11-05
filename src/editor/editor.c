@@ -11,8 +11,10 @@
 #include "json-editor.h"
 #include "editor-gutter.h"
 #include "editor-hover.h"
-#include "common/loading.h"
-#include "common/long-lines.h"
+#include "common/widgets/loading.h"
+#include "common/text/long-lines.h"
+#include "common/themes/themes.h"
+#include "source/split-lines.h"
 #include "editor.h"
 #include "minimap.h"
 #include "app/settings.h"
@@ -23,8 +25,6 @@
 /* Bytes after the first of a UTF-8 character start with the bits 10 */
 #define UTF8_TOP_BITS 0xC0
 #define UTF8_CONTINUATION 0x80
-#define LIGHT_SCHEME "Adwaita"
-#define DARK_SCHEME "Adwaita-dark"
 /* How much of a file is read to tell binary from text */
 #define SNIFF_BYTES 8192
 /* Reading runs just below drawing, so the loading spinner and the rest of the window keep painting */
@@ -35,7 +35,6 @@
 #define LENIENT_JSON_LANGUAGE "jsonc"
 /* Waiting for a pause in typing keeps large files from being sent to the server on each key */
 #define CHANGE_DELAY_MILLISECONDS 250
-#define SPLIT_WATCH "split-watch"
 
 /* Setting choices and the GtkSourceView values they stand for */
 static const struct {
@@ -153,7 +152,7 @@ static void apply_style_scheme(AdwStyleManager *styles, GParamSpec *property, Gt
 	GtkSourceStyleScheme *scheme = gtk_source_style_scheme_manager_get_scheme(schemes,
 		get_text_setting(is_dark ? "dark-scheme" : "light-scheme"));
 	if (!scheme)
-		scheme = gtk_source_style_scheme_manager_get_scheme(schemes, is_dark ? DARK_SCHEME : LIGHT_SCHEME);
+		scheme = gtk_source_style_scheme_manager_get_scheme(schemes, is_dark ? DEFAULT_DARK_THEME : DEFAULT_LIGHT_THEME);
 	gtk_source_buffer_set_style_scheme(buffer, scheme);
 }
 
@@ -243,7 +242,9 @@ static void mark_problem(Document *document, Diagnostic *problem) {
 	if (problem->severity < G_N_ELEMENTS(PROBLEM_TAGS))
 		gtk_text_buffer_apply_tag_by_name(get_document_buffer(document), PROBLEM_TAGS[problem->severity].tag, &start,
 			&end);
-	for (int line = problem->start_line; line <= problem->end_line; line++) {
+	/* A server may name lines past the end, which mark nothing and must not loop for ever */
+	int last_line = gtk_text_buffer_get_line_count(get_document_buffer(document)) - 1;
+	for (int line = MAX(problem->start_line, 0); line <= MIN(problem->end_line, last_line); line++) {
 		int known = get_document_line_severity(document, line);
 		if (!known || (int)problem->severity < known)
 			g_hash_table_insert(document->line_severities, GINT_TO_POINTER(line),
@@ -425,7 +426,7 @@ static void detach_language_server(Document *document) {
 		send_changes(document);
 	g_clear_handle_id(&document->change_timeout, g_source_remove);
 	close_lsp_document(document->client, document->uri);
-	document->client = NULL;
+	g_clear_pointer(&document->client, release_lsp_client);
 	clear_problems(document);
 	refresh_views(document);
 }
@@ -441,7 +442,7 @@ void attach_editor_language_server(Editor *editor, LspClient *client) {
 	detach_language_server(document);
 	if (!client || !file)
 		return;
-	document->client = client;
+	document->client = hold_lsp_client(client);
 	g_set_str(&document->uri, uri);
 	g_autofree char *path = g_file_get_path(file);
 	g_autofree char *text = get_document_text(document);
@@ -1222,7 +1223,10 @@ static void apply_editor_settings(Editor *editor) {
 		if (g_strcmp0(HOME_END_MODES[index].id, get_text_setting("smart-home-end")) == 0)
 			gtk_source_view_set_smart_home_end(editor->view, HOME_END_MODES[index].mode);
 	gtk_source_view_set_highlight_current_line(editor->view, get_switch_setting("highlight-current-line"));
-	gtk_source_buffer_set_highlight_matching_brackets(editor->document->buffer, get_switch_setting("matching-brackets"));
+	/* Split lines stay without bracket matching, which crawls through them */
+	gboolean has_split_lines_now = has_split_lines(get_document_buffer(editor->document));
+	gtk_source_buffer_set_highlight_matching_brackets(editor->document->buffer,
+		get_switch_setting("matching-brackets") && !has_split_lines_now);
 	gtk_source_buffer_set_implicit_trailing_newline(editor->document->buffer, get_switch_setting("final-newline"));
 	apply_style_scheme(adw_style_manager_get_default(), NULL, editor->document->buffer);
 	apply_layout_settings(editor);
@@ -1265,17 +1269,6 @@ static void notify_document_state(GtkTextBuffer *buffer, Document *document) {
 }
 
 
-/* GtkSourceView's parser spends seconds on each split line even with colours off, so a document with one loses
- * its language, as minified code gains little from colours */
-static void notice_split_lines(GtkTextBuffer *buffer, GtkTextIter *end, char *text, int length, gpointer data) {
-	if (!has_split_lines(buffer))
-		return;
-	gtk_source_buffer_set_language(GTK_SOURCE_BUFFER(buffer), NULL);
-	gtk_source_buffer_set_highlight_matching_brackets(GTK_SOURCE_BUFFER(buffer), FALSE);
-	g_signal_handlers_disconnect_by_data(buffer, SPLIT_WATCH);
-}
-
-
 static Document *create_document(void) {
 	Document *document = g_new0(Document, 1);
 	document->buffer = gtk_source_buffer_new(NULL);
@@ -1293,7 +1286,7 @@ static Document *create_document(void) {
 	g_signal_connect(document->buffer, "changed", G_CALLBACK(on_text_changed), document);
 	g_signal_connect(document->buffer, "modified-changed", G_CALLBACK(notify_document_state), document);
 	split_long_lines(GTK_TEXT_BUFFER(document->buffer));
-	g_signal_connect_after(document->buffer, "insert-text", G_CALLBACK(notice_split_lines), SPLIT_WATCH);
+	keep_split_lines_plain(document->buffer);
 	watch_colour_codes(document->buffer);
 	return document;
 }

@@ -166,7 +166,6 @@
 #define TEXT_PLAN_DELETE "Delete"
 #define TEXT_PLAN_TASK_PLACEHOLDER "Task, then Enter"
 #define TEXT_PLAN_REFRESH "Look for Plans and Comments Again"
-#define TEXT_PLAN_EMPTY "Add a task with +, or write TODO in a comment"
 #define TEXT_PLAN_CHANGED "The plan file changed, so it was read again"
 #define TEXT_TERMINAL "Terminal"
 /* The second and later terminal tabs */
@@ -357,3 +356,4 @@
 #define TEXT_TERMINAL_NO_SHELL "The shell set in Settings was not found."
 #define TEXT_CUT_OFF "..."
 #define TEXT_NO_VALUE "-"
+#define TEXT_SAVE_AS_FIRST "This file has no name yet, so save it with Save As first"

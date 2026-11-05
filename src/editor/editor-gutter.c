@@ -1,8 +1,11 @@
-#include "common/long-lines.h"
+#include "common/text/long-lines.h"
+#include "source/line-numbers.h"
 #include "editor-gutter.h"
 #include "app/settings.h"
 
-#define MINIMUM_NUMBER 999
+/* Line numbers keep room for three digits and only grow past that */
+#define MINIMUM_DIGITS 3
+#define NUMBER_SOURCE_KEY "number-source"
 /* Right of the problem icons, which GtkSourceView keeps at GTK_SOURCE_VIEW_GUTTER_POSITION_MARKS */
 #define NUMBERS_POSITION 0
 #define ICONS_POSITION -40
@@ -16,135 +19,41 @@ static const char *const SEVERITY_ICONS[] = {
 	"dialog-information-symbolic",
 };
 
-/* Line numbers drawn by the text renderer, which already shows the current line in the scheme's style */
-struct _LineNumbers {
-	GtkSourceGutterRendererText parent_instance;
+/* What the line numbers ask the editor, kept beside the numbers for as long as they live */
+typedef struct {
 	LineSeverityFunction get_severity;
 	gpointer data;
-	int digits;
-};
-
-#define LINE_NUMBERS_TYPE (line_numbers_get_type())
-G_DECLARE_FINAL_TYPE(LineNumbers, line_numbers, CRIMSON, LINE_NUMBERS, GtkSourceGutterRendererText)
-G_DEFINE_FINAL_TYPE(LineNumbers, line_numbers, GTK_SOURCE_TYPE_GUTTER_RENDERER_TEXT)
+} NumberSource;
 
 
-static int get_cursor_line(GtkTextBuffer *buffer) {
-	GtkTextIter cursor;
-	gtk_text_buffer_get_iter_at_mark(buffer, &cursor, gtk_text_buffer_get_insert(buffer));
-	return get_joined_line(buffer, gtk_text_iter_get_line(&cursor));
-}
-
-
-static void line_numbers_query_data(GtkSourceGutterRenderer *renderer, GtkSourceGutterLines *lines, guint line) {
-	LineNumbers *numbers = CRIMSON_LINE_NUMBERS(renderer);
-	GtkSourceGutterRendererText *text = GTK_SOURCE_GUTTER_RENDERER_TEXT(renderer);
-	GtkTextBuffer *buffer = GTK_TEXT_BUFFER(gtk_source_gutter_renderer_get_buffer(renderer));
-	/* The later pieces of a split line show no number, and the rest count the file's own lines */
-	int file_line = (int)line;
-	if (has_split_lines(buffer)) {
-		GtkTextIter iter;
-		gtk_text_buffer_get_iter_at_line(buffer, &iter, (int)line);
-		if (continues_split_line(&iter)) {
-			gtk_source_gutter_renderer_text_set_text(text, "", -1);
-			return;
-		}
-		file_line = get_joined_line(buffer, (int)line);
-	}
-	int cursor_line = get_cursor_line(buffer);
+/* Vim mode with relative numbers counts every other line from the cursor's */
+static int get_line_number(int file_line, int cursor_line, gpointer data) {
 	gboolean is_relative = get_switch_setting("relative-numbers") && get_switch_setting("vim-mode")
 		&& file_line != cursor_line;
-	int number = is_relative ? ABS(file_line - cursor_line) : file_line + 1;
-	int severity = numbers->get_severity ? numbers->get_severity(numbers->data, (int)line) : 0;
-	char label[64];
-	if (severity <= 0 || severity >= (int)G_N_ELEMENTS(SEVERITY_COLOURS)) {
-		g_snprintf(label, sizeof label, "%d", number);
-		gtk_source_gutter_renderer_text_set_text(text, label, -1);
-		return;
-	}
-	g_snprintf(label, sizeof label, "<span foreground=\"%s\">%d</span>", SEVERITY_COLOURS[severity], number);
-	gtk_source_gutter_renderer_text_set_markup(text, label, -1);
+	return is_relative ? ABS(file_line - cursor_line) : file_line + 1;
 }
 
 
-static int count_digits(LineNumbers *numbers) {
-	GtkSourceBuffer *buffer = gtk_source_gutter_renderer_get_buffer(GTK_SOURCE_GUTTER_RENDERER(numbers));
-	int count = buffer ? MAX(gtk_text_buffer_get_line_count(GTK_TEXT_BUFFER(buffer)), MINIMUM_NUMBER)
-		: MINIMUM_NUMBER;
-	int digits = 0;
-	for (; count > 0; count /= 10)
-		digits++;
-	return digits;
-}
-
-
-static void line_numbers_measure(GtkWidget *widget, GtkOrientation orientation, int for_size, int *minimum,
-	int *natural, int *minimum_baseline, int *natural_baseline) {
-	*minimum_baseline = *natural_baseline = -1;
-	if (orientation == GTK_ORIENTATION_VERTICAL) {
-		*minimum = *natural = 0;
-		return;
-	}
-	LineNumbers *numbers = CRIMSON_LINE_NUMBERS(widget);
-	numbers->digits = count_digits(numbers);
-	g_autofree char *sample = g_strnfill(numbers->digits, '0');
-	int width = 0;
-	gtk_source_gutter_renderer_text_measure(GTK_SOURCE_GUTTER_RENDERER_TEXT(widget), sample, &width, NULL);
-	*minimum = *natural = width + 2 * gtk_source_gutter_renderer_get_xpad(GTK_SOURCE_GUTTER_RENDERER(widget));
-}
-
-
-/* Asks for a new width only when the line count gains or loses a digit, so typing does not relayout */
-static void on_buffer_changed(GtkTextBuffer *buffer, LineNumbers *numbers) {
-	if (count_digits(numbers) != numbers->digits)
-		gtk_widget_queue_resize(GTK_WIDGET(numbers));
-}
-
-
-static void on_cursor_moved(GtkSourceBuffer *buffer, LineNumbers *numbers) {
-	gtk_widget_queue_draw(GTK_WIDGET(numbers));
-}
-
-
-static void line_numbers_change_buffer(GtkSourceGutterRenderer *renderer, GtkSourceBuffer *old_buffer) {
-	if (old_buffer)
-		g_signal_handlers_disconnect_by_data(old_buffer, renderer);
-	GtkSourceBuffer *buffer = gtk_source_gutter_renderer_get_buffer(renderer);
-	if (buffer) {
-		g_signal_connect_object(buffer, "changed", G_CALLBACK(on_buffer_changed), renderer, 0);
-		g_signal_connect_object(buffer, "cursor-moved", G_CALLBACK(on_cursor_moved), renderer, 0);
-	}
-	GTK_SOURCE_GUTTER_RENDERER_CLASS(line_numbers_parent_class)->change_buffer(renderer, old_buffer);
-	gtk_widget_queue_resize(GTK_WIDGET(renderer));
-}
-
-
-static void line_numbers_class_init(LineNumbersClass *class) {
-	GTK_WIDGET_CLASS(class)->measure = line_numbers_measure;
-	GTK_SOURCE_GUTTER_RENDERER_CLASS(class)->query_data = line_numbers_query_data;
-	GTK_SOURCE_GUTTER_RENDERER_CLASS(class)->change_buffer = line_numbers_change_buffer;
-}
-
-
-static void line_numbers_init(LineNumbers *numbers) {
-	gtk_source_gutter_renderer_set_xalign(GTK_SOURCE_GUTTER_RENDERER(numbers), 1.0);
-	gtk_source_gutter_renderer_set_xpad(GTK_SOURCE_GUTTER_RENDERER(numbers), 6);
+static const char *get_line_colour(int line, gpointer data) {
+	NumberSource *source = data;
+	int severity = source->get_severity ? source->get_severity(source->data, line) : 0;
+	return severity > 0 && severity < (int)G_N_ELEMENTS(SEVERITY_COLOURS) ? SEVERITY_COLOURS[severity] : NULL;
 }
 
 
 GtkSourceGutterRenderer *add_line_numbers(GtkSourceView *view, LineSeverityFunction get_severity, gpointer data) {
-	LineNumbers *numbers = g_object_new(LINE_NUMBERS_TYPE, NULL);
-	numbers->get_severity = get_severity;
-	numbers->data = data;
-	GtkSourceGutter *gutter = gtk_source_view_get_gutter(view, GTK_TEXT_WINDOW_LEFT);
-	gtk_source_gutter_insert(gutter, GTK_SOURCE_GUTTER_RENDERER(numbers), NUMBERS_POSITION);
-	return GTK_SOURCE_GUTTER_RENDERER(numbers);
+	NumberSource *source = g_new0(NumberSource, 1);
+	*source = (NumberSource){get_severity, data};
+	LineNumberStyle style = {get_line_number, get_line_colour, source};
+	GtkSourceGutterRenderer *numbers = add_file_line_numbers(view, NUMBERS_POSITION, MINIMUM_DIGITS, &style);
+	g_object_set_data_full(G_OBJECT(numbers), NUMBER_SOURCE_KEY, source, g_free);
+	return numbers;
 }
 
 
 void disconnect_line_numbers(GtkSourceGutterRenderer *renderer) {
-	CRIMSON_LINE_NUMBERS(renderer)->get_severity = NULL;
-	CRIMSON_LINE_NUMBERS(renderer)->data = NULL;
+	NumberSource *source = g_object_get_data(G_OBJECT(renderer), NUMBER_SOURCE_KEY);
+	*source = (NumberSource){NULL, NULL};
 }
 
 

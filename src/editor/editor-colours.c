@@ -1,7 +1,7 @@
 #include <string.h>
 
 #include "lang/en.h"
-#include "common/long-lines.h"
+#include "common/text/long-lines.h"
 #include "editor-colours.h"
 #include "editor-cursors.h"
 #include "editor-guides.h"

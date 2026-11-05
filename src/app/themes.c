@@ -4,7 +4,7 @@
 #include <gtksourceview/gtksource.h>
 
 #include "lang/en.h"
-#include "common/themes.h"
+#include "common/themes/themes.h"
 #include "settings-dialog.h"
 #include "settings.h"
 #include "terminal/terminal.h"
@@ -48,16 +48,24 @@ static const char TEMPLATE_HELP[] =
 static GtkCssProvider *scheme_style;
 
 
+/* Each choice holds its own copy of the theme's id and name in the same block, since the themes are read again when
+ * a theme file changes, which frees the list the choices came from */
+static SettingChoice *create_scheme_choice(const Theme *theme) {
+	gsize id_bytes = strlen(theme->id) + 1, name_bytes = strlen(theme->name) + 1;
+	SettingChoice *choice = g_malloc(sizeof(SettingChoice) + id_bytes + name_bytes);
+	char *id = (char *)(choice + 1), *name = id + id_bytes;
+	memcpy(id, theme->id, id_bytes);
+	memcpy(name, theme->name, name_bytes);
+	*choice = (SettingChoice){id, name};
+	return choice;
+}
+
+
 static GPtrArray *list_schemes(void) {
-	GPtrArray *themes = list_themes();
+	g_autoptr(GPtrArray) themes = list_themes();
 	GPtrArray *choices = g_ptr_array_new_with_free_func(g_free);
-	for (guint index = 0; index < themes->len; index++) {
-		const Theme *theme = g_ptr_array_index(themes, index);
-		SettingChoice *choice = g_new0(SettingChoice, 1);
-		choice->id = theme->id;
-		choice->label = theme->name;
-		g_ptr_array_add(choices, choice);
-	}
+	for (guint index = 0; index < themes->len; index++)
+		g_ptr_array_add(choices, create_scheme_choice(g_ptr_array_index(themes, index)));
 	return choices;
 }
 

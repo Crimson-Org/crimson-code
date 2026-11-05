@@ -6,7 +6,7 @@
 #include "editor-hover.h"
 #include "editor.h"
 #include "markdown.h"
-#include "common/spacing.h"
+#include "common/widgets/spacing.h"
 
 #define HOVER_DELAY_MILLISECONDS 400
 #define TEXT_WIDTH_CHARACTERS 80

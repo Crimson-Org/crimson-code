@@ -6,8 +6,8 @@
 #include "lang/en.h"
 #include "json-editor.h"
 #include "build/json.h"
-#include "common/loading.h"
-#include "common/spacing.h"
+#include "common/widgets/loading.h"
+#include "common/widgets/spacing.h"
 
 #define EDITOR_KEY "json-editor"
 #define PARTS_KEY "json-row-parts"
