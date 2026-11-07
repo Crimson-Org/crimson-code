@@ -3,9 +3,8 @@
 </p>
 
 <h1 align="center">Crimson Code</h1>
-<p align="center">A Linux code editor with <a href="https://microsoft.github.io/language-server-protocol/">language server</a> support, a terminal and a task runner.<br>
-Easy editing like <a href="https://code.visualstudio.com/">VS Code</a>, with one click to switch to a <a href="https://www.vim.org/">Vim</a> inspired mode.<br>
-Fast startup.</p>
+<p align="center">A code editor for Linux, with language servers, a terminal and tasks built in.<br>
+Write code the easy way, or switch to a Vim inspired mode with one click.</p>
 
 <p align="center">
   <a href="https://gtk.org">
@@ -29,15 +28,9 @@ Fast startup.</p>
 
 ## Why
 
-Crimson Code starts quickly, understands your code and stays light.\
-Language servers, a terminal and tasks are built in.
+Crimson Code opens in an instant, even with large files, and keeps every tool out of the way until needed.
 
 ## About
-
-### Projects
-
-Open a folder to list the folder's files in a sidebar, with each file in a tab and a minimap beside the text.\
-Split the view to show files side by side, and open a terminal in the project folder.
 
 ### Language servers
 
@@ -58,10 +51,6 @@ Each task is also saved as a script, which runs without Crimson Code.
 
 Binary files open in a hex editor.\
 Search for text or bytes, replace them, jump to an offset, and read or change the value under the cursor as a number or text.
-
-### Themes
-
-Dark and light themes are included, and you can make your own from a template.
 
 ### Vim mode
 
