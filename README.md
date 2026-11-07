@@ -54,6 +54,11 @@ TODO and plan files show as tickable lists, next to the TODO and FIXME notes in 
 Tasks build, run and test your project.\
 Each task is also saved as a script, which runs without Crimson Code.
 
+### Hex editor
+
+Binary files open in a hex editor.\
+Search for text or bytes, replace them, jump to an offset, and read or change the value under the cursor as a number or text.
+
 ### Themes
 
 Dark and light themes are included, and you can make your own from a template.
