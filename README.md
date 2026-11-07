@@ -29,8 +29,8 @@ Fast startup.</p>
 
 ## Why
 
-Large editors are slow and crowded, and small ones lack language servers, a terminal and tasks.\
-Crimson Code is fast and light, and includes all three.
+Crimson Code starts quickly, understands your code and stays light.\
+Language servers, a terminal and tasks are built in.
 
 ## About
 
@@ -64,8 +64,8 @@ One click switches to a Vim inspired mode, with commands like `:w`, `:q` and `:e
 
 ## Building
 
-You need a [C compiler](https://gcc.gnu.org/), [make](https://www.gnu.org/software/make/), [pkg-config](https://www.freedesktop.org/wiki/Software/pkg-config/) and the development files for [GTK4](https://gtk.org), [libadwaita](https://gnome.pages.gitlab.gnome.org/libadwaita/) and [GtkSourceView](https://gitlab.gnome.org/GNOME/gtksourceview).\
-On [openSUSE](https://www.opensuse.org/) these come from `sudo zypper install gcc make pkg-config gtk4-devel libadwaita-devel gtksourceview5-devel`.
+You need a [C compiler](https://gcc.gnu.org/), [pkg-config](https://www.freedesktop.org/wiki/Software/pkg-config/) and the development files for [GTK4](https://gtk.org), [libadwaita](https://gnome.pages.gitlab.gnome.org/libadwaita/) and [GtkSourceView](https://gitlab.gnome.org/GNOME/gtksourceview).\
+On [openSUSE](https://www.opensuse.org/) these come from `sudo zypper install gcc pkg-config gtk4-devel libadwaita-devel gtksourceview5-devel`.
 
 Steps:
  1. Clone using `git clone --recurse-submodules https://github.com/Crimson-Org/crimson-code`
